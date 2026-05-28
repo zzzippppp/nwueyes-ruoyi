@@ -13,8 +13,8 @@ PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
         <setting name="defaultExecutorType"      value="SIMPLE" />
 		<!-- 指定 MyBatis 所用日志的具体实现 -->
         <setting name="logImpl"                  value="SLF4J"  />
-        <!-- 使用驼峰命名法转换字段 -->
-		<!-- <setting name="mapUnderscoreToCamelCase" value="true"/> -->
+        <!-- PostgreSQL 列名小写，开启驼峰映射（face_image_url -> faceImageUrl） -->
+		<setting name="mapUnderscoreToCamelCase" value="true"/>
 	</settings>
 	
 </configuration>

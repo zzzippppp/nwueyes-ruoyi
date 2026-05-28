@@ -13,8 +13,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <!-- 新增已读记录 -->
     <insert id="insertNoticeRead" parameterType="SysNoticeRead">
-        insert ignore into sys_notice_read (notice_id, user_id, read_time)
-        values (#{noticeId}, #{userId}, sysdate())
+        insert into sys_notice_read (notice_id, user_id, read_time)
+        values (#{noticeId}, #{userId}, CURRENT_TIMESTAMP)
+        on conflict (user_id, notice_id) do nothing
     </insert>
 
     <!-- 查询未读数量：正常状态公告 减去 当前用户已读数 -->
@@ -48,11 +49,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <!-- 批量标记已读 -->
     <insert id="insertNoticeReadBatch">
-        insert ignore into sys_notice_read (notice_id, user_id, read_time)
+        insert into sys_notice_read (notice_id, user_id, read_time)
         values
         <foreach collection="noticeIds" item="noticeId" separator=",">
-            (#{noticeId}, #{userId}, sysdate())
+            (#{noticeId}, #{userId}, CURRENT_TIMESTAMP)
         </foreach>
+        on conflict (user_id, notice_id) do nothing
     </insert>
 
     <!-- 删除公告时清理已读记录 -->

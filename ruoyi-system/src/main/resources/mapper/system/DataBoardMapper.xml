@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.DataBoardMapper">
+
+    <sql id="daySessionFilter">
+        ps.arrival_at &gt;= #{statDate}::date
+        AND ps.arrival_at &lt; (#{statDate}::date + INTERVAL '1 day')
+        <if test="locationId != null">
+            AND ps.location_id = #{locationId}
+        </if>
+    </sql>
+
+    <sql id="openSessionFilter">
+        ps.status = 'open'
+        <if test="locationId != null">
+            AND ps.location_id = #{locationId}
+        </if>
+    </sql>
+
+    <select id="selectOverview" resultType="com.ruoyi.system.domain.vo.DataBoardOverviewVo">
+        SELECT
+            COALESCE(day_stats.session_count, 0) AS sessionCount,
+            COALESCE(day_stats.visitor_count, 0) AS visitorCount,
+            COALESCE(day_stats.known_visitor_count, 0) AS knownVisitorCount,
+            COALESCE(day_stats.stranger_visitor_count, 0) AS strangerVisitorCount,
+            COALESCE(open_stats.open_session_count, 0) AS openSessionCount,
+            COALESCE(day_stats.closed_dwell_seconds, 0) AS closedDwellSeconds,
+            COALESCE(day_stats.open_dwell_seconds, 0) AS openDwellSeconds
+        FROM (
+            SELECT
+                COUNT(*)::bigint AS session_count,
+                COUNT(DISTINCT CASE
+                    WHEN ps.person_id IS NOT NULL THEN 'p:' || ps.person_id::text
+                    ELSE 't:' || ps.track_key
+                END)::bigint AS visitor_count,
+                COUNT(DISTINCT CASE
+                    WHEN ps.person_id IS NOT NULL AND p.person_kind = 'known' THEN ps.person_id
+                END)::bigint AS known_visitor_count,
+                COUNT(DISTINCT CASE
+                    WHEN ps.person_id IS NULL THEN ps.track_key
+                    WHEN p.person_kind = 'stranger' THEN 'p:' || ps.person_id::text
+                END)::bigint AS stranger_visitor_count,
+                COALESCE(SUM(
+                    CASE WHEN ps.status = 'closed' THEN ps.dwell_seconds ELSE 0 END
+                ), 0)::bigint AS closed_dwell_seconds,
+                COALESCE(SUM(
+                    CASE WHEN ps.status = 'open' THEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - ps.arrival_at))))::bigint ELSE 0 END
+                ), 0)::bigint AS open_dwell_seconds
+            FROM presence_sessions ps
+            LEFT JOIN persons p ON p.id = ps.person_id
+            <where>
+                <include refid="daySessionFilter"/>
+            </where>
+        ) day_stats
+        CROSS JOIN (
+            SELECT COUNT(*)::bigint AS open_session_count
+            FROM presence_sessions ps
+            <where>
+                <include refid="openSessionFilter"/>
+            </where>
+        ) open_stats
+    </select>
+
+    <select id="selectHourlyTrend" resultType="com.ruoyi.system.domain.vo.DataBoardHourlyItemVo">
+        SELECT
+            EXTRACT(HOUR FROM ps.arrival_at)::int AS hour,
+            COUNT(*)::bigint AS arrivalCount,
+            COALESCE(SUM(
+                CASE
+                    WHEN ps.status = 'closed' THEN ps.dwell_seconds
+                    ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - ps.arrival_at))))::bigint
+                END
+            ), 0)::bigint AS dwellSeconds
+        FROM presence_sessions ps
+        <where>
+            <include refid="daySessionFilter"/>
+        </where>
+        GROUP BY EXTRACT(HOUR FROM ps.arrival_at)
+        ORDER BY hour
+    </select>
+
+    <select id="selectByLocation" resultType="com.ruoyi.system.domain.vo.DataBoardLocationItemVo">
+        SELECT
+            l.id AS locationId,
+            l.name AS locationName,
+            l.device_serial AS deviceSerial,
+            l.channel_no AS channelNo,
+            COUNT(ps.id)::bigint AS sessionCount,
+            COALESCE(SUM(
+                CASE
+                    WHEN ps.id IS NULL THEN 0
+                    WHEN ps.status = 'closed' THEN ps.dwell_seconds
+                    ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - ps.arrival_at))))::bigint
+                END
+            ), 0)::bigint AS dwellSeconds,
+            COUNT(ps.id) FILTER (WHERE ps.status = 'open')::bigint AS openCount
+        FROM locations l
+        LEFT JOIN presence_sessions ps ON ps.location_id = l.id
+            AND ps.arrival_at &gt;= #{statDate}::date
+            AND ps.arrival_at &lt; (#{statDate}::date + INTERVAL '1 day')
+        WHERE l.is_active = TRUE
+        <if test="locationId != null">
+            AND l.id = #{locationId}
+        </if>
+        GROUP BY l.id, l.name, l.device_serial, l.channel_no
+        ORDER BY sessionCount DESC, l.id
+    </select>
+
+    <select id="selectRecentSessions" resultType="com.ruoyi.system.domain.vo.DataBoardRecentSessionVo">
+        SELECT
+            ps.id AS sessionId,
+            ps.person_id AS personId,
+            COALESCE(p.display_name, '未知访客') AS displayName,
+            COALESCE(p.person_kind::text, 'stranger') AS personKind,
+            l.name AS locationName,
+            ps.arrival_at AS arrivalAt,
+            ps.departure_at AS departureAt,
+            ps.status::text AS status,
+            CASE
+                WHEN ps.status = 'closed' THEN ps.dwell_seconds::bigint
+                ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - ps.arrival_at))))::bigint
+            END AS dwellSeconds,
+            ps.face_image_url AS face_image_url
+        FROM presence_sessions ps
+        INNER JOIN locations l ON l.id = ps.location_id
+        LEFT JOIN persons p ON p.id = ps.person_id
+        <where>
+            (
+                (ps.arrival_at &gt;= #{statDate}::date AND ps.arrival_at &lt; (#{statDate}::date + INTERVAL '1 day'))
+                OR ps.status = 'open'
+            )
+            <if test="locationId != null">
+                AND ps.location_id = #{locationId}
+            </if>
+        </where>
+        ORDER BY ps.arrival_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectPersonItems" resultType="com.ruoyi.system.domain.vo.DataBoardPersonItemVo">
+        SELECT
+            p.id AS personId,
+            p.display_name AS displayName,
+            p.person_kind::text AS personKind,
+            COALESCE(array_to_string(p.tags, ','), '') AS tagsText,
+            COALESCE(p.note, '') AS note,
+            fp.image_url AS face_image_url,
+            bp.image_url AS body_image_url,
+            latest.last_seen_at AS lastSeenAt
+        FROM persons p
+        LEFT JOIN LATERAL (
+            SELECT ps.last_seen_at
+            FROM presence_sessions ps
+            WHERE ps.person_id = p.id
+            ORDER BY ps.last_seen_at DESC
+            LIMIT 1
+        ) latest ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT image_url
+            FROM face_profiles
+            WHERE person_id = p.id
+            ORDER BY is_primary DESC, created_at DESC
+            LIMIT 1
+        ) fp ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT image_url
+            FROM body_profiles
+            WHERE person_id = p.id
+            ORDER BY is_primary DESC, created_at DESC
+            LIMIT 1
+        ) bp ON TRUE
+        ORDER BY p.id DESC
+    </select>
+
+    <select id="selectStrangerItems" resultType="com.ruoyi.system.domain.vo.DataBoardStrangerItemVo">
+        SELECT
+            x.track_key AS trackKey,
+            COALESCE(x.display_name, '未知访客') AS displayName,
+            COALESCE(x.tags_text, '') AS tagsText,
+            x.face_image_url AS face_image_url,
+            x.person_id AS mergedPersonId
+        FROM (
+            SELECT DISTINCT ON (ps.track_key)
+                ps.track_key,
+                ps.person_id,
+                p.display_name,
+                COALESCE(array_to_string(p.tags, ','), '') AS tags_text,
+                ps.face_image_url,
+                ps.arrival_at
+            FROM presence_sessions ps
+            LEFT JOIN persons p ON p.id = ps.person_id
+            WHERE ps.track_key IS NOT NULL
+              AND ps.track_key &lt;&gt; ''
+              <if test="locationId != null">
+                AND ps.location_id = #{locationId}
+              </if>
+              AND (ps.person_id IS NULL OR p.person_kind = 'stranger')
+            ORDER BY ps.track_key, ps.arrival_at DESC
+        ) x
+        ORDER BY x.arrival_at DESC
+    </select>
+
+    <update id="updatePerson">
+        UPDATE persons
+        SET display_name = #{displayName},
+            person_kind = CAST(#{personKind} AS person_kind),
+            tags = CASE
+                WHEN #{tagsText} IS NULL OR #{tagsText} = '' THEN ARRAY[]::text[]
+                ELSE string_to_array(#{tagsText}, ',')
+            END,
+            note = #{note},
+            updated_at = NOW()
+        WHERE id = #{personId}
+    </update>
+
+    <delete id="deletePerson">
+        DELETE FROM persons WHERE id = #{personId}
+    </delete>
+
+    <update id="updateSessionStatus">
+        UPDATE presence_sessions
+        SET status = CAST(#{status} AS session_status),
+            departure_at = CASE WHEN #{status} = 'closed' THEN COALESCE(departure_at, NOW()) ELSE NULL END,
+            dwell_seconds = CASE
+                WHEN #{status} = 'closed' THEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (COALESCE(departure_at, NOW()) - arrival_at))))::int
+                ELSE NULL
+            END,
+            updated_at = NOW()
+        WHERE id = #{sessionId}
+    </update>
+
+    <delete id="deleteSession">
+        DELETE FROM presence_sessions WHERE id = #{sessionId}
+    </delete>
+
+    <delete id="deleteStrangerByTrackKey">
+        DELETE FROM presence_sessions WHERE track_key = #{trackKey}
+    </delete>
+
+    <update id="clearStrangerPerson">
+        UPDATE presence_sessions
+        SET person_id = NULL, updated_at = NOW()
+        WHERE track_key = #{trackKey}
+    </update>
+
+    <update id="bindTrackToPerson">
+        UPDATE presence_sessions
+        SET person_id = #{personId}, updated_at = NOW()
+        WHERE track_key = #{trackKey}
+    </update>
+
+    <insert id="insertPerson">
+        INSERT INTO persons (display_name, person_kind, tags, note, created_at, updated_at)
+        VALUES (
+            #{displayName},
+            CAST(#{personKind} AS person_kind),
+            CASE
+                WHEN #{tagsText} IS NULL OR #{tagsText} = '' THEN ARRAY[]::text[]
+                ELSE string_to_array(#{tagsText}, ',')
+            END,
+            #{note},
+            NOW(),
+            NOW()
+        )
+    </insert>
+
+    <select id="selectLastPersonId" resultType="java.lang.Long">
+        SELECT id FROM persons ORDER BY id DESC LIMIT 1
+    </select>
+
+    <insert id="insertFaceProfile">
+        INSERT INTO face_profiles (person_id, embedding, image_url, is_primary, created_at)
+        VALUES (#{personId}, array_fill(0.0::real, ARRAY[512])::vector(512), #{imageUrl}, TRUE, NOW())
+    </insert>
+
+    <update id="updateLocation">
+        UPDATE locations
+        SET name = #{locationName},
+            is_active = COALESCE(#{isActive}, is_active)
+        WHERE id = #{locationId}
+    </update>
+
+</mapper>

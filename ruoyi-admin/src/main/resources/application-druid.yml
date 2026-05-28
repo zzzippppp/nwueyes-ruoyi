@@ -1,14 +1,15 @@
-# 数据源配置
+# 数据源配置（Docker 容器 ruoyi-postgres，本机 5432）
+# 业务表与若依 sys_* 均使用同一库 nwueyes，IDEA 与 jar 勿再通过启动参数覆盖库名
 spring:
     datasource:
         type: com.alibaba.druid.pool.DruidDataSource
-        driverClassName: com.mysql.cj.jdbc.Driver
+        driverClassName: org.postgresql.Driver
         druid:
             # 主库数据源
             master:
-                url: jdbc:mysql://localhost:3306/ry-vue?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8
-                username: root
-                password: password
+                url: jdbc:postgresql://localhost:5432/nwueyes
+                username: postgres
+                password: root123
             # 从库数据源
             slave:
                 # 从数据源开关/默认关闭
@@ -35,7 +36,7 @@ spring:
             # 配置一个连接在池中最大生存的时间，单位是毫秒
             maxEvictableIdleTimeMillis: 900000
             # 配置检测连接是否有效
-            validationQuery: SELECT 1 FROM DUAL
+            validationQuery: SELECT 1
             testWhileIdle: true
             testOnBorrow: false
             testOnReturn: false

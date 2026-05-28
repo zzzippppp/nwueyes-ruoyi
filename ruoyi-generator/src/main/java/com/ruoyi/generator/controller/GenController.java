@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,10 +21,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import com.alibaba.druid.DbType;
-import com.alibaba.druid.sql.SQLUtils;
-import com.alibaba.druid.sql.ast.SQLStatement;
-import com.alibaba.druid.sql.dialect.mysql.ast.statement.MySqlCreateTableStatement;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
@@ -46,6 +44,8 @@ import com.ruoyi.generator.service.IGenTableService;
 @RequestMapping("/tool/gen")
 public class GenController extends BaseController
 {
+    private static final Pattern CREATE_TABLE_PATTERN = Pattern.compile("(?is)create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?([\\w\".]+)");
+
     @Autowired
     private IGenTableService genTableService;
 
@@ -133,19 +133,27 @@ public class GenController extends BaseController
         try
         {
             SqlUtil.filterKeyword(sql);
-            List<SQLStatement> sqlStatements = SQLUtils.parseStatements(sql, DbType.mysql);
             List<String> tableNames = new ArrayList<>();
-            for (SQLStatement sqlStatement : sqlStatements)
+            String[] statements = sql.split(";");
+            for (String statement : statements)
             {
-                if (sqlStatement instanceof MySqlCreateTableStatement)
+                String trimmedSql = statement.trim();
+                if (trimmedSql.isEmpty())
                 {
-                    MySqlCreateTableStatement createTableStatement = (MySqlCreateTableStatement) sqlStatement;
-                    if (genTableService.createTable(createTableStatement.toString()))
+                    continue;
+                }
+                if (genTableService.createTable(trimmedSql))
+                {
+                    String tableName = extractCreatedTableName(trimmedSql);
+                    if (tableName != null)
                     {
-                        String tableName = createTableStatement.getTableName().replaceAll("`", "");
                         tableNames.add(tableName);
                     }
                 }
+            }
+            if (tableNames.isEmpty())
+            {
+                return AjaxResult.error("未解析到有效的数据表");
             }
             List<GenTable> tableList = genTableService.selectDbTableListByNames(tableNames.toArray(new String[tableNames.size()]));
             String operName = SecurityUtils.getUsername();
@@ -157,6 +165,18 @@ public class GenController extends BaseController
             logger.error(e.getMessage(), e);
             return AjaxResult.error("创建表结构异常");
         }
+    }
+
+    private String extractCreatedTableName(String sql)
+    {
+        Matcher matcher = CREATE_TABLE_PATTERN.matcher(sql);
+        if (!matcher.find())
+        {
+            return null;
+        }
+        String tableName = matcher.group(1).replace("\"", "");
+        int dotIndex = tableName.lastIndexOf('.');
+        return dotIndex >= 0 ? tableName.substring(dotIndex + 1) : tableName;
     }
 
     /**

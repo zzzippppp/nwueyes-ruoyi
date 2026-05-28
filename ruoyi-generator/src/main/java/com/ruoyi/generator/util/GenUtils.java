@@ -20,11 +20,12 @@ public class GenUtils
      */
     public static void initTable(GenTable genTable, String operName)
     {
+        String tableComment = StringUtils.defaultIfEmpty(genTable.getTableComment(), genTable.getTableName());
         genTable.setClassName(convertClassName(genTable.getTableName()));
         genTable.setPackageName(GenConfig.getPackageName());
         genTable.setModuleName(getModuleName(GenConfig.getPackageName()));
         genTable.setBusinessName(getBusinessName(genTable.getTableName()));
-        genTable.setFunctionName(replaceText(genTable.getTableComment()));
+        genTable.setFunctionName(replaceText(tableComment));
         genTable.setFunctionAuthor(GenConfig.getAuthor());
         genTable.setCreateBy(operName);
     }
@@ -226,13 +227,17 @@ public class GenUtils
      */
     public static String getDbType(String columnType)
     {
+        if (StringUtils.isEmpty(columnType))
+        {
+            return StringUtils.EMPTY;
+        }
         if (StringUtils.indexOf(columnType, "(") > 0)
         {
-            return StringUtils.substringBefore(columnType, "(");
+            return StringUtils.substringBefore(columnType, "(").toLowerCase();
         }
         else
         {
-            return columnType;
+            return columnType.toLowerCase();
         }
     }
 

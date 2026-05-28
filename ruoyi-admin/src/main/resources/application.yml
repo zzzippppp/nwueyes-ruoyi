@@ -53,6 +53,8 @@ spring:
     basename: i18n/messages
   profiles:
     active: druid
+  config:
+    import: optional:classpath:application-local.yml
   # 文件上传
   servlet:
     multipart:
@@ -112,7 +114,7 @@ mybatis:
 
 # PageHelper分页插件
 pagehelper:
-  helperDialect: mysql
+  helperDialect: postgresql
   supportMethodsArguments: true
   params: count=countSql
 
@@ -145,3 +147,10 @@ xss:
   excludes: /system/notice
   # 匹配链接
   urlPatterns: /system/*,/monitor/*,/tool/*
+
+# 萤石开放平台配置
+ezviz:
+  baseUrl: https://open.ys7.com
+  appKey: ${EZVIZ_APP_KEY:}
+  appSecret: ${EZVIZ_APP_SECRET:}
+  defaultChannelNo: ${EZVIZ_DEFAULT_CHANNEL_NO:1}
