@@ -167,7 +167,7 @@ class TrackBestShots:
 
 @dataclass
 class LiveEventCapture:
-    """过线确认后，在短窗口内择优抓拍再 ingest。"""
+    """过线确认后择优抓拍再 ingest；进门会持续追脸直到检出或超时。"""
 
     track_key: str
     event_type: str
@@ -176,7 +176,11 @@ class LiveEventCapture:
     window_sec: float
     min_face_det_score: float = 0.45
     enter_inside_px: int = 15
+    enter_face_hunt_max_sec: float = 10.0
+    enter_face_grace_sec: float = 1.5
+    started_at: float = field(default_factory=time.time)
     deadline: float = field(default_factory=lambda: 0.0)
+    face_first_seen_at: Optional[float] = None
     samples: int = 0
     best_face_score: float = -1.0
     best_body_score: float = -1.0
@@ -185,19 +189,16 @@ class LiveEventCapture:
 
     def __post_init__(self):
         if self.deadline <= 0:
-            self.deadline = time.time() + self.window_sec
+            self.deadline = self.started_at + self.window_sec
 
     def try_sample(self, frame, box, conf: float, frame_area: int) -> bool:
         h, w = frame.shape[:2]
         _, _, _, y2 = _clamp_box(box, w, h)
         foot_y = float(y2)
 
-        if self.event_type == "enter" and foot_y < self.line_y - 15:
-            return False
-        if self.event_type == "exit" and foot_y > self.line_y + 15:
+        if self.event_type == "exit" and foot_y > self.line_y + self.enter_inside_px:
             return False
 
-        require_face = self.event_type == "enter"
         face, body, fs, bs = extract_quality_crops(
             frame,
             box,
@@ -211,21 +212,30 @@ class LiveEventCapture:
         if face is not None and fs > self.best_face_score:
             self.best_face_score = fs
             self.best_face_img = face.copy()
+            if self.face_first_seen_at is None:
+                self.face_first_seen_at = time.time()
             updated = True
         if body is not None and bs > self.best_body_score:
             self.best_body_score = bs
             self.best_body_img = body.copy()
             updated = True
-        if require_face and self.best_face_img is None and not updated:
-            return False
         return updated
 
     def expired(self, now: float) -> bool:
+        if self.event_type == "enter":
+            if now >= self.started_at + self.enter_face_hunt_max_sec:
+                return True
+            if self.best_face_img is not None and self.face_first_seen_at is not None:
+                return now >= self.face_first_seen_at + self.enter_face_grace_sec
+            return False
         return now >= self.deadline
+
+    def hunt_elapsed_sec(self, now: float) -> float:
+        return max(0.0, now - self.started_at)
 
     def quality_flag(self) -> str:
         if self.event_type == "enter":
-            if self.best_face_img is not None and self.best_body_img is not None:
+            if self.best_face_img is not None:
                 return "normal"
             if self.best_body_img is not None:
                 return "low"

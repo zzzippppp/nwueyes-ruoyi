@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""过线判定：轨迹线段穿线 + 每轨迹门区状态(C)，抑制转身/换 ID 重复进门。"""
+"""过线判定：轨迹线段穿线 + 每轨迹门区状态(C)，抑制换 ID 重复进门；多人先后进门仍靠穿线/窄带补推断。"""
 
 from __future__ import annotations
 
@@ -167,7 +167,7 @@ class PerTrackDoorGate:
         return self._real_enter.get(track_id, False)
 
     def mark_inside_silent(self, track_id: int, *, from_other: bool = False) -> None:
-        """换 ID / 已在门内深处首次检出：记 inside，不发出 enter。"""
+        """换 ID / 门内深处首次检出：记 inside，不发出 enter（不因他人已在场而静默）。"""
         self._side[track_id] = SIDE_INSIDE
         if from_other:
             self._silent_from_other[track_id] = True
@@ -177,20 +177,17 @@ class PerTrackDoorGate:
         self._seg_watermark[track_id] = 0
 
     def on_new_track(self, track_id: int, cy: float) -> None:
-        """新轨迹首次出现时的静默状态同步。"""
+        """新轨迹首次出现：仅门内深处静默；门线窄带内仍允许穿线/补推断 enter。"""
         self._reset_history(track_id, cy)
         if self.side(track_id) == SIDE_INSIDE:
             return
         if cy > self.line_y + self.tight_margin:
             self.mark_inside_silent(track_id, from_other=False)
-            return
-        if cy > self.line_y and self.other_inside(track_id):
-            self.mark_inside_silent(track_id, from_other=True)
-
-    def other_inside(self, track_id: int) -> bool:
-        return any(
-            side == SIDE_INSIDE for tid, side in self._side.items() if tid != track_id
-        )
+            print(
+                f"[gate] silent-inside track={track_id} cy={cy:.0f} lineY={self.line_y} "
+                f"margin={self.tight_margin} reason=deep_first_seen",
+                flush=True,
+            )
 
     def filter_event(self, track_id: int, event: Optional[str]) -> Optional[str]:
         if event is None:
@@ -276,7 +273,7 @@ class PerTrackDoorGate:
         return self.try_cross_trajectory(pending, track_id, confirm_frames)
 
     def try_infer_enter(self, track_id: int, cy: float, is_new_track: bool) -> Optional[str]:
-        """D：仅新轨迹、仍在门外侧状态、脚点紧贴红线、且门区无他人 inside 时补推断。"""
+        """D：新轨迹、门外侧状态、脚点紧贴红线时补推断 enter（不因他人已在场而禁止）。"""
         if not is_new_track:
             return None
         if self.side(track_id) == SIDE_INSIDE:
@@ -284,8 +281,6 @@ class PerTrackDoorGate:
         if cy <= self.line_y:
             return None
         if (cy - self.line_y) > self.tight_margin:
-            return None
-        if self.other_inside(track_id):
             return None
         return "enter"
 

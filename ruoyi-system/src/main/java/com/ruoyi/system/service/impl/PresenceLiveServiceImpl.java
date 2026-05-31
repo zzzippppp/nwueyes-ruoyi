@@ -392,6 +392,10 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         cmd.add(String.valueOf(live.getExitInferMargin()));
         cmd.add("--snapshot-window-sec");
         cmd.add(String.valueOf(ingestProperties.getSnapshotWindowSec()));
+        cmd.add("--enter-face-hunt-max-sec");
+        cmd.add(String.valueOf(live.getEnterFaceHuntMaxSec()));
+        cmd.add("--enter-face-grace-sec");
+        cmd.add(String.valueOf(live.getEnterFaceGraceSec()));
         cmd.add("--face-min-det-score");
         cmd.add(String.valueOf(ingestProperties.getFaceMinDetScore()));
         cmd.add("--cross-confirm-frames");

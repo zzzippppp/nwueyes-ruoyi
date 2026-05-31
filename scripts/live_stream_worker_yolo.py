@@ -107,9 +107,15 @@ def finalize_live_capture(
         "qualityFlag": quality,
     }
     post_event_async(http_pool, args.ingest_base_url, args.ingest_key, payload)
+    hunt_note = ""
+    if capture.event_type == "enter":
+        hunt_note = (
+            f" huntSec={capture.hunt_elapsed_sec(time.time()):.1f}"
+            f" faceFound={'yes' if capture.best_face_img is not None else 'no'}"
+        )
     print(
         f"[capture-done] {capture.track_key} {capture.event_type} samples={capture.samples} "
-        f"face={'yes' if face_url else 'no'} body={'yes' if body_url else 'no'} quality={quality}",
+        f"face={'yes' if face_url else 'no'} body={'yes' if body_url else 'no'} quality={quality}{hunt_note}",
         flush=True,
     )
 
@@ -314,7 +320,19 @@ def main():
     parser.add_argument("--enter-infer-margin", type=int, default=80)
     parser.add_argument("--exit-infer-margin", type=int, default=80)
     parser.add_argument("--imgsz", type=int, default=1280, help="YOLO 推理尺寸，高分辨率远景人体需更大")
-    parser.add_argument("--snapshot-window-sec", type=float, default=2.5, help="过线确认后择优抓拍窗口（秒）")
+    parser.add_argument("--snapshot-window-sec", type=float, default=2.5, help="出门过线后择优抓拍窗口（秒）")
+    parser.add_argument(
+        "--enter-face-hunt-max-sec",
+        type=float,
+        default=10.0,
+        help="进门穿线后持续追脸最长时间（秒），超时仍无脸则按 low/missing 入库",
+    )
+    parser.add_argument(
+        "--enter-face-grace-sec",
+        type=float,
+        default=1.5,
+        help="进门首次检出脸后继续择优的宽限时间（秒）",
+    )
     parser.add_argument("--face-min-det-score", type=float, default=0.45, help="InsightFace 人脸检测最低分")
     parser.add_argument("--cross-confirm-frames", type=int, default=1, help="连续几帧同向穿线才确认")
     parser.add_argument("--open-timeout-sec", type=float, default=30.0)
@@ -423,7 +441,8 @@ def main():
         f"[live] stream ready task={args.task_id} protocol={args.stream_protocol} "
         f"size={width}x{height} targetFps={args.target_detect_fps} flush={args.grab_flush_frames} "
         f"conf={args.conf} imgsz={args.imgsz} crossConfirm={args.cross_confirm_frames} "
-        f"snapshotWindow={args.snapshot_window_sec}s faceMinDet={args.face_min_det_score} "
+        f"snapshotWindow={args.snapshot_window_sec}s enterFaceHuntMax={args.enter_face_hunt_max_sec}s "
+        f"enterFaceGrace={args.enter_face_grace_sec}s faceMinDet={args.face_min_det_score} "
         f"tightInferPx={tight_margin} exitMarginPx={exit_margin} minTrackHits={min_track_hits} "
         f"enterInsidePx={enter_inside_px} corridorMarginX={corridor_margin_x} "
         f"localFile={local_file_mode} "
@@ -538,16 +557,19 @@ def main():
                 cx = (bx1 + bx2) / 2.0
                 cy = by2
                 tid_i = int(tid)
-                if cx < x1 - corridor_margin_x or cx > x2 + corridor_margin_x:
+                track_key = f"{args.track_prefix}_{tid_i}"
+                capture_sess = active_captures.get(track_key)
+                in_enter_face_hunt = capture_sess is not None and capture_sess.event_type == "enter"
+                if not in_enter_face_hunt and (
+                    cx < x1 - corridor_margin_x or cx > x2 + corridor_margin_x
+                ):
                     continue
                 persons_corridor += 1
                 track_hits[tid_i] = track_hits.get(tid_i, 0) + 1
 
-                track_key = f"{args.track_prefix}_{tid_i}"
                 conf = float(confs[idx]) if confs is not None else 0.0
                 box = (bx1, by1, bx2, by2)
 
-                capture_sess = active_captures.get(track_key)
                 if capture_sess is not None:
                     capture_sess.try_sample(frame, box, conf, frame_area)
                     continue
@@ -595,6 +617,12 @@ def main():
                     f"oldY={old:.0f} lineY={line_y} side={door_gate.side(tid_i)} inferred={inferred}",
                     flush=True,
                 )
+                if event_type == "enter":
+                    print(
+                        f"[capture-hunt] enter track={track_key} maxSec={args.enter_face_hunt_max_sec} "
+                        f"graceSec={args.enter_face_grace_sec}",
+                        flush=True,
+                    )
                 door_gate.commit(tid_i, event_type)
                 active_captures[track_key] = LiveEventCapture(
                     track_key=track_key,
@@ -604,6 +632,8 @@ def main():
                     window_sec=args.snapshot_window_sec,
                     min_face_det_score=args.face_min_det_score,
                     enter_inside_px=enter_inside_px,
+                    enter_face_hunt_max_sec=args.enter_face_hunt_max_sec,
+                    enter_face_grace_sec=args.enter_face_grace_sec,
                 )
                 active_captures[track_key].try_sample(frame, box, conf, frame_area)
                 track_conf[track_key] = conf

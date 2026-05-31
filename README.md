@@ -1,6 +1,9 @@
 <p align="center">
 	<img alt="logo" src="https://oscimg.oschina.net/oscnet/up-d3d0a9303e11d522a06cd263f3079027715.png">
 </p>
+
+> **nwueyes 业务说明与从零启动指南** → [`NWUEYES_README.md`](NWUEYES_README.md) 或 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)
+
 <h1 align="center" style="margin: 30px 0 30px; font-weight: bold;">RuoYi v3.9.2</h1>
 <h4 align="center">基于SpringBoot+Vue前后端分离的Java快速开发框架</h4>
 <p align="center">

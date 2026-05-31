@@ -3,7 +3,8 @@
 按顺序执行（需已启用 `vector` 扩展，见 `sql/ry_20260417.sql`）：
 
 ```bash
-psql "postgresql://postgres:root123@localhost:5432/nwueyes" -f ruoyi/sql/migration/002_storage_and_vectors.sql
+psql "$SPRING_DATASOURCE_URL" -f ruoyi/sql/migration/002_storage_and_vectors.sql
+# 或: psql -U postgres -d nwueyes -f ruoyi/sql/migration/002_storage_and_vectors.sql
 ```
 
 ## 002_storage_and_vectors.sql
@@ -22,9 +23,10 @@ psql "postgresql://postgres:root123@localhost:5432/nwueyes" -f ruoyi/sql/migrati
 ## Step 2: embedding 脚本
 
 ```bash
+pip install -r ruoyi/scripts/requirements.txt
 pip install -r ruoyi/scripts/requirements-embedding.txt
-python ruoyi/scripts/embed_features.py --kind face --image E:/nwueyes/log_library/face/2026/05/29/analyze_xxx.jpg
-python ruoyi/scripts/embed_features.py --kind body --image E:/nwueyes/log_library/body/2026/05/29/analyze_xxx.jpg
+python ruoyi/scripts/embed_features.py --kind face --image ./data/log_library/face/sample.jpg
+python ruoyi/scripts/embed_features.py --kind body --image ./data/log_library/body/sample.jpg
 ```
 
 ## 图片 URL 约定

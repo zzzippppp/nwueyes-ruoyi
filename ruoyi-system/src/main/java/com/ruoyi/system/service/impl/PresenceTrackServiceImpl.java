@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.uuid.IdUtils;
 import com.ruoyi.system.config.PresenceIngestProperties;
+import com.ruoyi.system.domain.vo.BodySessionMatchVo;
 import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
 import com.ruoyi.system.domain.vo.FaceMatchCandidateVo;
 import com.ruoyi.system.domain.vo.PresenceOpenSessionVo;
@@ -104,16 +105,10 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             }
         }
 
-        // 进门身份/合并 session 只认人脸；不用体态比对 open session，避免不同人误并
+        // 进门身份/合并 session 只认人脸；无脸时不建 stranger（体态仅作证据图）
         if (personId == null)
         {
             if (Boolean.TRUE.equals(faceEmbed.getOk()) && faceEmbed.getEmbedding() != null)
-            {
-                personId = registerStranger(trackKey, faceImageUrl, bodyImageUrl, faceEmbed, bodyEmbed);
-                personKind = PERSON_KIND_STRANGER;
-                strangerRegistered = true;
-            }
-            else if (Boolean.TRUE.equals(bodyEmbed.getOk()) && bodyEmbed.getEmbedding() != null)
             {
                 personId = registerStranger(trackKey, faceImageUrl, bodyImageUrl, faceEmbed, bodyEmbed);
                 personKind = PERSON_KIND_STRANGER;
@@ -138,30 +133,93 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         validateLocation(locationId);
         String normalizedQuality = normalizeQuality(qualityFlag, faceImageUrl, bodyImageUrl);
 
-        // 出门只关本 track 的 open session；不做体态/人脸兜底匹配，避免误关他人记录
-        PresenceOpenSessionVo open = null;
-        if (!StringUtils.isEmpty(trackKey))
+        EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
+        ExitBodyMatch matched = resolveExitOpenSession(locationId, trackKey, bodyEmbed);
+        if (matched == null || matched.session == null)
         {
-            open = presenceIngestMapper.selectOpenByTrack(locationId, trackKey);
-        }
-        if (open == null)
-        {
-            log.info("orphan exit log-only track={} locationId={} (no open session for track)", trackKey, locationId);
+            log.info(
+                    "orphan exit log-only track={} locationId={} (no open session with body similarity >= threshold)",
+                    trackKey, locationId);
             return buildSkippedOrphanExitResult(trackKey, normalizedQuality);
         }
 
+        PresenceOpenSessionVo open = matched.session;
+        Float bodyMatchScore = matched.score;
         int updated = presenceIngestMapper.closeSession(open.getSessionId(), eventTime, open.getPersonId(),
-                faceImageUrl, bodyImageUrl, null);
+                faceImageUrl, bodyImageUrl, bodyMatchScore);
         if (updated <= 0)
         {
-            log.warn("exit session close failed track={} sessionId={}", trackKey, open.getSessionId());
+            log.warn("exit session close failed track={} matchedSession={} sessionId={}", trackKey,
+                    open.getTrackKey(), open.getSessionId());
             return buildSkippedOrphanExitResult(trackKey, normalizedQuality);
+        }
+
+        if (!StringUtils.isEmpty(trackKey) && !trackKey.equals(open.getTrackKey()))
+        {
+            log.info("exit body-match closed session track={} eventTrack={} score={}",
+                    open.getTrackKey(), trackKey, bodyMatchScore);
         }
 
         String personKind = open.getPersonId() == null ? PERSON_KIND_UNKNOWN : PERSON_KIND_STRANGER;
         String displayName = defaultDisplayName(open.getTrackKey());
         return buildResult(open.getSessionId(), "closed", open.getPersonId(), displayName,
-                personKind, null, null, normalizedQuality, false);
+                personKind, null, bodyMatchScore, normalizedQuality, false);
+    }
+
+    private static final class ExitBodyMatch
+    {
+        private PresenceOpenSessionVo session;
+
+        private Float score;
+    }
+
+    /**
+     * 出门关 session：exit 体态向量 vs open session 的 enter_body_embedding，
+     * 仅当相似度达到 bodyMatchThreshold 时才返回对应 session（非 trackKey 兜底）。
+     */
+    private ExitBodyMatch resolveExitOpenSession(Long locationId, String trackKey, EmbeddingVectorVo bodyEmbed)
+    {
+        if (!Boolean.TRUE.equals(bodyEmbed.getOk()) || bodyEmbed.getEmbedding() == null)
+        {
+            log.debug("exit body embed unavailable track={}", trackKey);
+            return null;
+        }
+        String literal = toLiteral(bodyEmbed);
+        if (literal == null)
+        {
+            return null;
+        }
+        BodySessionMatchVo match = searchOpenSessionByBody(locationId, literal);
+        if (match == null || match.getSessionId() == null)
+        {
+            return null;
+        }
+        float threshold = bodyMatchThreshold();
+        if (match.getScore() == null || match.getScore().floatValue() < threshold)
+        {
+            return null;
+        }
+        PresenceOpenSessionVo session = presenceIngestMapper.selectOpenBySessionId(match.getSessionId());
+        if (session == null)
+        {
+            return null;
+        }
+        ExitBodyMatch result = new ExitBodyMatch();
+        result.session = session;
+        result.score = match.getScore();
+        return result;
+    }
+
+    private BodySessionMatchVo searchOpenSessionByBody(Long locationId, String embeddingLiteral)
+    {
+        return profileMatchMapper.searchTopOpenSessionByBody(locationId, embeddingLiteral,
+                maxDistance(bodyMatchThreshold()));
+    }
+
+    private float bodyMatchThreshold()
+    {
+        Double value = ingestProperties.getBodyMatchThreshold();
+        return value == null ? 0.50f : value.floatValue();
     }
 
     private PresenceTrackProcessResultVo buildSkippedOrphanExitResult(String trackKey, String qualityFlag)

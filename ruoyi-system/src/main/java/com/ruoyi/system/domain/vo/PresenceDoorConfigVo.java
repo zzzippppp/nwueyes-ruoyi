@@ -13,6 +13,10 @@ public class PresenceDoorConfigVo
 
     private Double snapshotWindowSec;
 
+    private Double enterFaceHuntMaxSec;
+
+    private Double enterFaceGraceSec;
+
     public Integer getLineY()
     {
         return lineY;
@@ -51,5 +55,25 @@ public class PresenceDoorConfigVo
     public void setSnapshotWindowSec(Double snapshotWindowSec)
     {
         this.snapshotWindowSec = snapshotWindowSec;
+    }
+
+    public Double getEnterFaceHuntMaxSec()
+    {
+        return enterFaceHuntMaxSec;
+    }
+
+    public void setEnterFaceHuntMaxSec(Double enterFaceHuntMaxSec)
+    {
+        this.enterFaceHuntMaxSec = enterFaceHuntMaxSec;
+    }
+
+    public Double getEnterFaceGraceSec()
+    {
+        return enterFaceGraceSec;
+    }
+
+    public void setEnterFaceGraceSec(Double enterFaceGraceSec)
+    {
+        this.enterFaceGraceSec = enterFaceGraceSec;
     }
 }

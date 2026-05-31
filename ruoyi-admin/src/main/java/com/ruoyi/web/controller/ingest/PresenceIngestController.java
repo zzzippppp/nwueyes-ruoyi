@@ -90,6 +90,8 @@ public class PresenceIngestController
         vo.setRoi(ingestProperties.getReplayRoi());
         vo.setYoloConf(live == null ? null : live.getYoloConf());
         vo.setSnapshotWindowSec(ingestProperties.getSnapshotWindowSec());
+        vo.setEnterFaceHuntMaxSec(live == null ? null : live.getEnterFaceHuntMaxSec());
+        vo.setEnterFaceGraceSec(live == null ? null : live.getEnterFaceGraceSec());
         return AjaxResult.success(vo);
     }
 

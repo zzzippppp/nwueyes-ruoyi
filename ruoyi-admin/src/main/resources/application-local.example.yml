@@ -1,0 +1,43 @@
+# 本地/服务器私密配置模板
+# 用法: 复制为 application-local.yml 后填写真实值（该文件已被 gitignore，不会提交）
+#
+#   cp application-local.example.yml application-local.yml   # Linux/macOS
+#   copy application-local.example.yml application-local.yml # Windows
+
+ruoyi:
+  profile: ${NWUEYES_UPLOAD_PATH:./data/uploadPath}
+
+ezviz:
+  appKey: ${EZVIZ_APP_KEY:your-ezviz-app-key}
+  appSecret: ${EZVIZ_APP_SECRET:your-ezviz-app-secret}
+
+presence:
+  ingest:
+    enabled: true
+    apiKey: ${PRESENCE_INGEST_API_KEY:change-me-ingest-key}
+    defaultLocationId: 1
+    workspaceRoot: ${PRESENCE_WORKSPACE_ROOT:./ruoyi}
+    replayProfileRoot: ${NWUEYES_UPLOAD_PATH:./data/uploadPath}
+    replayIngestBaseUrl: ${PRESENCE_INGEST_BASE_URL:http://localhost:8080}
+    storageRoot: ${PRESENCE_STORAGE_ROOT:./data}
+    replayPythonCommand: ${PRESENCE_PYTHON:python}
+    # 门区标定（1920x1080 参考分辨率，其他分辨率会自动缩放）
+    replayLineY: 658
+    replayRoi: 640,35,1250,680
+    snapshotWindowSec: 2.5
+    faceMatchThreshold: 0.45
+    bodyMatchThreshold: 0.50
+    liveScriptPath: scripts/live_stream_worker_yolo.py
+    live:
+      targetDetectFps: 15
+      yoloImgsz: 1280
+      yoloConf: 0.20
+      enterInferMargin: 80
+      exitInferMargin: 80
+      eventCooldownSec: 2
+      enterFaceHuntMaxSec: 10
+      enterFaceGraceSec: 1.5
+      ezvizCloudProtocol: 4
+      ezvizCloudQuality: 1
+      # 可选：局域网 RTSP（留空则只用萤石公网 FLV）
+      lanRtspUrl: ${EZVIZ_LAN_RTSP_URL:}

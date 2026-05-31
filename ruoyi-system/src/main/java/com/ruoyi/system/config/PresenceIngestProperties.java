@@ -143,6 +143,12 @@ public class PresenceIngestProperties
 
         private double eventCooldownSec = 2.0;
 
+        /** 进门穿线后持续追脸最长时间（秒） */
+        private double enterFaceHuntMaxSec = 10.0;
+
+        /** 进门首次检出脸后继续择优的宽限时间（秒） */
+        private double enterFaceGraceSec = 1.5;
+
         private int streamOpenTimeoutSec = 12;
 
         private int ingestCorePoolSize = 2;
@@ -260,6 +266,26 @@ public class PresenceIngestProperties
         public void setEventCooldownSec(double eventCooldownSec)
         {
             this.eventCooldownSec = eventCooldownSec;
+        }
+
+        public double getEnterFaceHuntMaxSec()
+        {
+            return enterFaceHuntMaxSec;
+        }
+
+        public void setEnterFaceHuntMaxSec(double enterFaceHuntMaxSec)
+        {
+            this.enterFaceHuntMaxSec = enterFaceHuntMaxSec;
+        }
+
+        public double getEnterFaceGraceSec()
+        {
+            return enterFaceGraceSec;
+        }
+
+        public void setEnterFaceGraceSec(double enterFaceGraceSec)
+        {
+            this.enterFaceGraceSec = enterFaceGraceSec;
         }
 
         public int getStreamOpenTimeoutSec()

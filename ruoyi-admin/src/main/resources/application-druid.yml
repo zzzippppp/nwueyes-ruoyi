@@ -7,9 +7,9 @@ spring:
         druid:
             # 主库数据源
             master:
-                url: jdbc:postgresql://localhost:5432/nwueyes
-                username: postgres
-                password: root123
+                url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/nwueyes}
+                username: ${SPRING_DATASOURCE_USERNAME:postgres}
+                password: ${SPRING_DATASOURCE_PASSWORD:root123}
             # 从库数据源
             slave:
                 # 从数据源开关/默认关闭

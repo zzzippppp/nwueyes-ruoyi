@@ -7,7 +7,7 @@ ruoyi:
   # 版权年份
   copyrightYear: 2026
   # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
-  profile: D:/ruoyi/uploadPath
+  profile: ${NWUEYES_UPLOAD_PATH:D:/ruoyi/uploadPath}
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证
@@ -99,7 +99,7 @@ token:
   # 令牌自定义标识
   header: Authorization
   # 令牌密钥
-  secret: abcdefghijklmnopqrstuvwxyz
+  secret: ${TOKEN_SECRET:abcdefghijklmnopqrstuvwxyz}
   # 令牌有效期（默认30分钟）
   expireTime: 30
 
@@ -176,3 +176,12 @@ presence:
     replayIngestBaseUrl: ${PRESENCE_REPLAY_INGEST_BASE_URL:http://localhost:8080}
     replayLineY: ${PRESENCE_REPLAY_LINE_Y:520}
     replayRoi: ${PRESENCE_REPLAY_ROI:620,170,1290,760}
+    faceMatchThreshold: ${PRESENCE_FACE_MATCH_THRESHOLD:0.45}
+    bodyMatchThreshold: ${PRESENCE_BODY_MATCH_THRESHOLD:0.50}
+    liveScriptPath: ${PRESENCE_LIVE_SCRIPT:scripts/live_stream_worker_yolo.py}
+    live:
+      targetDetectFps: ${PRESENCE_LIVE_TARGET_FPS:10}
+      yoloImgsz: ${PRESENCE_LIVE_YOLO_IMGSZ:960}
+      yoloConf: ${PRESENCE_LIVE_YOLO_CONF:0.20}
+      enterFaceHuntMaxSec: ${PRESENCE_ENTER_FACE_HUNT_MAX_SEC:10}
+      enterFaceGraceSec: ${PRESENCE_ENTER_FACE_GRACE_SEC:1.5}
