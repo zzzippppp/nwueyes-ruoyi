@@ -43,6 +43,14 @@ nbdist/
 *.swp
 /ruoyi-admin/src/main/resources/application-local.yml
 
+# Python / ML artifacts (venv 本地自建，模型首次运行自动下载)
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.pt
+scripts/replay_debug.mp4
+
 !*/build/*.java
 !*/build/*.html
 !*/build/*.xml

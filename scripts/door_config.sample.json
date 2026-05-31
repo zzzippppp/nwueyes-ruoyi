@@ -1,0 +1,7 @@
+{
+  "frameWidth": 1920,
+  "frameHeight": 1080,
+  "lineY": 520,
+  "roi": "620,170,1290,760",
+  "description": "门区主测试参数示例：向下穿线=enter，向上穿线=exit"
+}

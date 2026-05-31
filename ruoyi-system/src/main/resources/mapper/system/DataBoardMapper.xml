@@ -122,10 +122,17 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 WHEN ps.status = 'closed' THEN ps.dwell_seconds::bigint
                 ELSE GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - ps.arrival_at))))::bigint
             END AS dwellSeconds,
-            ps.face_image_url AS face_image_url
+            fp.image_url AS face_image_url
         FROM presence_sessions ps
         INNER JOIN locations l ON l.id = ps.location_id
         LEFT JOIN persons p ON p.id = ps.person_id
+        LEFT JOIN LATERAL (
+            SELECT image_url
+            FROM face_profiles
+            WHERE person_id = ps.person_id
+            ORDER BY is_primary DESC, created_at DESC
+            LIMIT 1
+        ) fp ON ps.person_id IS NOT NULL
         <where>
             (
                 (ps.arrival_at &gt;= #{statDate}::date AND ps.arrival_at &lt; (#{statDate}::date + INTERVAL '1 day'))
@@ -179,7 +186,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             x.track_key AS trackKey,
             COALESCE(x.display_name, '未知访客') AS displayName,
             COALESCE(x.tags_text, '') AS tagsText,
-            x.face_image_url AS face_image_url,
+            fp.image_url AS face_image_url,
             x.person_id AS mergedPersonId
         FROM (
             SELECT DISTINCT ON (ps.track_key)
@@ -187,7 +194,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 ps.person_id,
                 p.display_name,
                 COALESCE(array_to_string(p.tags, ','), '') AS tags_text,
-                ps.face_image_url,
                 ps.arrival_at
             FROM presence_sessions ps
             LEFT JOIN persons p ON p.id = ps.person_id
@@ -199,6 +205,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
               AND (ps.person_id IS NULL OR p.person_kind = 'stranger')
             ORDER BY ps.track_key, ps.arrival_at DESC
         ) x
+        LEFT JOIN LATERAL (
+            SELECT image_url
+            FROM face_profiles
+            WHERE person_id = x.person_id
+            ORDER BY is_primary DESC, created_at DESC
+            LIMIT 1
+        ) fp ON x.person_id IS NOT NULL
         ORDER BY x.arrival_at DESC
     </select>
 
@@ -250,6 +263,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SET person_id = #{personId}, updated_at = NOW()
         WHERE track_key = #{trackKey}
     </update>
+
+    <select id="selectPersonIdByTrackKey" resultType="java.lang.Long">
+        SELECT person_id
+        FROM presence_sessions
+        WHERE track_key = #{trackKey}
+          AND person_id IS NOT NULL
+        ORDER BY arrival_at DESC
+        LIMIT 1
+    </select>
 
     <insert id="insertPerson">
         INSERT INTO persons (display_name, person_kind, tags, note, created_at, updated_at)

@@ -45,6 +45,8 @@ public interface DataBoardMapper
 
     int bindTrackToPerson(@Param("trackKey") String trackKey, @Param("personId") Long personId);
 
+    Long selectPersonIdByTrackKey(@Param("trackKey") String trackKey);
+
     int insertPerson(@Param("displayName") String displayName, @Param("personKind") String personKind,
             @Param("tagsText") String tagsText, @Param("note") String note);
 

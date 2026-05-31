@@ -168,7 +168,10 @@ CREATE TABLE sys_menu (
 -- ----------------------------
 -- 一级菜单
 INSERT INTO sys_menu VALUES (5, '监控大屏', '0', '1', 'monitor_screen', 'dashboard/monitor_screen/index', '', 'monitor_screen', 1, 0, 'C', '0', '0', '', 'dashboard', 'admin', CURRENT_TIMESTAMP, '', NULL, '监控大屏菜单');
-INSERT INTO sys_menu VALUES (6, '数据看板', '0', '2', 'data_board', 'dashboard/data_board/index', '', 'data_board', 1, 0, 'C', '0', '0', '', 'chart', 'admin', CURRENT_TIMESTAMP, '', NULL, '数据看板菜单');
+INSERT INTO sys_menu VALUES (6, '数据看板', '0', '2', 'data_board', NULL, '', 'DataBoard', 1, 0, 'M', '0', '0', '', 'chart', 'admin', CURRENT_TIMESTAMP, '', NULL, '数据看板目录');
+INSERT INTO sys_menu VALUES (601, '数据看板', '6', '1', 'index', 'dashboard/data_board/index', 'DataBoardIndex', 1, 0, 'C', '0', '0', 'dashboard:data-board:list', 'chart', 'admin', CURRENT_TIMESTAMP, '', NULL, '数据看板主页');
+INSERT INTO sys_menu VALUES (602, '行为日志', '6', '2', 'behavior_log', 'dashboard/behavior_log/index', 'BehaviorLog', 1, 0, 'C', '0', '0', 'dashboard:behavior-log:list', 'documentation', 'admin', CURRENT_TIMESTAMP, '', NULL, '进出门行为日志');
+INSERT INTO sys_menu VALUES (7, '视频测试', '0', '3', 'video_test', 'dashboard/video_test/index', '', 'video_test', 1, 0, 'C', '0', '0', '', 'video', 'admin', CURRENT_TIMESTAMP, '', NULL, '视频上传测试模块');
 INSERT INTO sys_menu VALUES (1, '系统管理', '0', '3', 'system', NULL, '', '', 1, 0, 'M', '0', '0', '', 'system', 'admin', CURRENT_TIMESTAMP, '', NULL, '系统管理目录');
 INSERT INTO sys_menu VALUES (2, '系统监控', '0', '4', 'monitor', NULL, '', '', 1, 0, 'M', '0', '0', '', 'monitor', 'admin', CURRENT_TIMESTAMP, '', NULL, '系统监控目录');
 INSERT INTO sys_menu VALUES (3, '系统工具', '0', '5', 'tool', NULL, '', '', 1, 0, 'M', '0', '0', '', 'tool', 'admin', CURRENT_TIMESTAMP, '', NULL, '系统工具目录');
@@ -303,6 +306,8 @@ INSERT INTO sys_role_menu VALUES ('2', '3');
 INSERT INTO sys_role_menu VALUES ('2', '4');
 INSERT INTO sys_role_menu VALUES ('2', '5');
 INSERT INTO sys_role_menu VALUES ('2', '6');
+INSERT INTO sys_role_menu VALUES ('2', '601');
+INSERT INTO sys_role_menu VALUES ('2', '602');
 INSERT INTO sys_role_menu VALUES ('2', '100');
 INSERT INTO sys_role_menu VALUES ('2', '101');
 INSERT INTO sys_role_menu VALUES ('2', '102');

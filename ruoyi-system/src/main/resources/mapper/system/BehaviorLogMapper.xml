@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.BehaviorLogMapper">
+
+    <select id="selectBehaviorLogList" resultType="com.ruoyi.system.domain.vo.BehaviorLogItemVo">
+        SELECT
+            bl.id,
+            bl.display_name AS displayName,
+            bl.event_type AS eventType,
+            bl.event_time AS eventTime,
+            bl.face_image_url AS faceImageUrl,
+            bl.body_image_url AS bodyImageUrl,
+            bl.location_id AS locationId,
+            l.name AS locationName,
+            bl.person_id AS personId,
+            bl.track_key AS trackKey,
+            bl.session_id AS sessionId,
+            bl.person_kind AS personKind,
+            bl.source,
+            bl.face_match_score AS faceMatchScore,
+            bl.body_match_score AS bodyMatchScore,
+            bl.quality_flag AS qualityFlag,
+            bl.created_at AS createdAt
+        FROM behavior_logs bl
+        LEFT JOIN locations l ON l.id = bl.location_id
+        <where>
+            <if test="statDate != null">
+                bl.event_time &gt;= #{statDate}::date
+                AND bl.event_time &lt; (#{statDate}::date + INTERVAL '1 day')
+            </if>
+            <if test="locationId != null">
+                AND bl.location_id = #{locationId}
+            </if>
+            <if test="eventType != null and eventType != ''">
+                AND bl.event_type = #{eventType}
+            </if>
+        </where>
+        ORDER BY bl.event_time DESC, bl.id DESC
+        <if test="limit != null">
+            LIMIT #{limit}
+        </if>
+    </select>
+
+    <select id="countByUniqueKey" resultType="int">
+        SELECT COUNT(1)
+        FROM behavior_logs
+        WHERE track_key = #{trackKey}
+          AND event_type = #{eventType}
+          AND event_time = #{eventTime}
+          AND source = #{source}
+    </select>
+
+    <insert id="insertBehaviorLog" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO behavior_logs (
+            display_name,
+            event_type,
+            event_time,
+            face_image_url,
+            body_image_url,
+            location_id,
+            person_id,
+            track_key,
+            session_id,
+            person_kind,
+            source,
+            created_at
+        ) VALUES (
+            #{displayName},
+            #{eventType},
+            #{eventTime},
+            #{faceImageUrl},
+            #{bodyImageUrl},
+            #{locationId},
+            #{personId},
+            #{trackKey},
+            #{sessionId},
+            #{personKind},
+            #{source},
+            NOW()
+        )
+    </insert>
+
+    <update id="updateBehaviorLogImages">
+        UPDATE behavior_logs
+        SET face_image_url = #{faceImageUrl},
+            body_image_url = #{bodyImageUrl}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateBehaviorLogPresence">
+        UPDATE behavior_logs
+        SET display_name = #{displayName},
+            person_id = #{personId},
+            session_id = #{sessionId},
+            person_kind = #{personKind},
+            face_match_score = #{faceMatchScore},
+            body_match_score = #{bodyMatchScore},
+            quality_flag = COALESCE(#{qualityFlag}, quality_flag)
+        WHERE id = #{id}
+    </update>
+
+</mapper>

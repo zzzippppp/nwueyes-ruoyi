@@ -3,7 +3,6 @@ package com.ruoyi.web.controller.dashboard;
 import java.time.LocalDate;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +26,7 @@ import com.ruoyi.system.domain.bo.DataBoardPersonUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardSessionUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardStrangerUpdateBo;
 import com.ruoyi.system.domain.vo.DataBoardSummaryVo;
+import com.ruoyi.system.storage.PresenceStoragePaths;
 import com.ruoyi.system.service.IDataBoardService;
 import com.ruoyi.system.service.IDataBoardManageService;
 
@@ -42,6 +42,9 @@ public class DataBoardController
 
     @Autowired
     private IDataBoardManageService dataBoardManageService;
+
+    @Autowired
+    private PresenceStoragePaths storagePaths;
 
     /**
      * 看板汇总（卡片 + 图表 + 最近记录）
@@ -121,10 +124,13 @@ public class DataBoardController
     public ResponseEntity<Resource> serveFile(@PathVariable("category") String category,
             @PathVariable("fileName") String fileName) throws Exception
     {
-        String dirName = "body".equals(category) ? "body_library" : "face_library";
-        Path projectDir = resolveStorageRoot();
-        Path filePath = projectDir.resolve(dirName).resolve(fileName).normalize();
-        if (!Files.exists(filePath))
+        Path filePath = "body".equals(category)
+                ? storagePaths.resolveArchiveBodyFile(fileName)
+                : storagePaths.resolveArchiveFaceFile(fileName);
+        Path allowedRoot = "body".equals(category)
+                ? storagePaths.bodyLibraryRoot()
+                : storagePaths.faceLibraryRoot();
+        if (!storagePaths.isUnderRoot(filePath, allowedRoot) || !Files.exists(filePath))
         {
             return ResponseEntity.notFound().build();
         }
@@ -148,29 +154,5 @@ public class DataBoardController
             return MediaType.parseMediaType("image/webp");
         }
         return MediaType.IMAGE_JPEG;
-    }
-
-    private Path resolveStorageRoot()
-    {
-        Path cwd = Paths.get("").toAbsolutePath().normalize();
-        Path cursor = cwd;
-        for (int i = 0; i < 6 && cursor != null; i++)
-        {
-            if (Files.exists(cursor.resolve("face_library")) || Files.exists(cursor.resolve("body_library")))
-            {
-                return cursor;
-            }
-            if ("ruoyi".equalsIgnoreCase(cursor.getFileName().toString()) && cursor.getParent() != null)
-            {
-                return cursor.getParent();
-            }
-            if ("ruoyi-admin".equalsIgnoreCase(cursor.getFileName().toString()) && cursor.getParent() != null
-                    && cursor.getParent().getParent() != null)
-            {
-                return cursor.getParent().getParent();
-            }
-            cursor = cursor.getParent();
-        }
-        return cwd;
     }
 }

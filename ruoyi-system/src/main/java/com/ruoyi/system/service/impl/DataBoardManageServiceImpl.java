@@ -2,19 +2,23 @@ package com.ruoyi.system.service.impl;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Locale;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.uuid.IdUtils;
+import com.ruoyi.system.storage.PresenceStoragePaths;
 import com.ruoyi.system.domain.bo.DataBoardLocationUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardPersonUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardSessionUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardStrangerUpdateBo;
+import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
 import com.ruoyi.system.mapper.DataBoardMapper;
+import com.ruoyi.system.mapper.ProfileMatchMapper;
 import com.ruoyi.system.service.IDataBoardManageService;
+import com.ruoyi.system.service.IPresenceEmbedService;
+import com.ruoyi.system.util.VectorLiteralUtil;
 
 @Service
 public class DataBoardManageServiceImpl implements IDataBoardManageService
@@ -25,6 +29,15 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
 
     @Autowired
     private DataBoardMapper dataBoardMapper;
+
+    @Autowired
+    private PresenceStoragePaths storagePaths;
+
+    @Autowired
+    private IPresenceEmbedService presenceEmbedService;
+
+    @Autowired
+    private ProfileMatchMapper profileMatchMapper;
 
     @Override
     public boolean updatePerson(Long personId, DataBoardPersonUpdateBo bo)
@@ -55,8 +68,14 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
     @Override
     public boolean updateStranger(String trackKey, DataBoardStrangerUpdateBo bo)
     {
+        Long existingPersonId = dataBoardMapper.selectPersonIdByTrackKey(trackKey);
         if (IDENTITY_KNOWN.equalsIgnoreCase(bo.getIdentityType()))
         {
+            if (existingPersonId != null)
+            {
+                return dataBoardMapper.updatePerson(existingPersonId, defaultName(bo.getDisplayName()),
+                        IDENTITY_KNOWN, bo.getTagsText(), "") > 0;
+            }
             dataBoardMapper.insertPerson(defaultName(bo.getDisplayName()), IDENTITY_KNOWN, bo.getTagsText(), "");
             Long personId = dataBoardMapper.selectLastPersonId();
             if (personId == null)
@@ -65,7 +84,12 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
             }
             return dataBoardMapper.bindTrackToPerson(trackKey, personId) > 0;
         }
-        return dataBoardMapper.clearStrangerPerson(trackKey) >= 0;
+        if (existingPersonId != null)
+        {
+            return dataBoardMapper.updatePerson(existingPersonId, defaultName(bo.getDisplayName()),
+                    IDENTITY_STRANGER, bo.getTagsText(), "") > 0;
+        }
+        return true;
     }
 
     @Override
@@ -84,9 +108,8 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
     public String uploadFaceAndCreatePerson(String displayName, String personKind, String tagsText, String note, MultipartFile avatarFile)
             throws Exception
     {
-        Path projectDir = resolveStorageRoot();
-        Path faceDir = projectDir.resolve("face_library");
-        Path bodyDir = projectDir.resolve("body_library");
+        Path faceDir = storagePaths.faceLibraryRoot();
+        Path bodyDir = storagePaths.bodyLibraryRoot();
         Files.createDirectories(faceDir);
         Files.createDirectories(bodyDir);
 
@@ -95,14 +118,21 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
         Path savePath = faceDir.resolve(fileName);
         avatarFile.transferTo(savePath.toFile());
 
-        String imageUrl = "/dashboard/data-board/file/face/" + fileName;
+        String imageUrl = storagePaths.buildArchiveFaceUrl(fileName);
         dataBoardMapper.insertPerson(defaultName(displayName), normalizePersonKind(personKind), tagsText, note);
         Long personId = dataBoardMapper.selectLastPersonId();
         if (personId == null)
         {
             throw new RuntimeException("创建人员失败");
         }
-        dataBoardMapper.insertFaceProfile(personId, imageUrl);
+
+        EmbeddingVectorVo faceEmbed = presenceEmbedService.embedImage("face", imageUrl);
+        if (!Boolean.TRUE.equals(faceEmbed.getOk()) || faceEmbed.getEmbedding() == null)
+        {
+            throw new IllegalStateException("人脸向量抽取失败: "
+                    + StringUtils.nvl(faceEmbed.getError(), "未知错误"));
+        }
+        profileMatchMapper.insertFaceProfile(personId, VectorLiteralUtil.toLiteral(faceEmbed.getEmbedding()), imageUrl);
         return imageUrl;
     }
 
@@ -132,29 +162,5 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
             return ".jpg";
         }
         return ext;
-    }
-
-    private Path resolveStorageRoot()
-    {
-        Path cwd = Paths.get("").toAbsolutePath().normalize();
-        Path cursor = cwd;
-        for (int i = 0; i < 6 && cursor != null; i++)
-        {
-            if (Files.exists(cursor.resolve("face_library")) || Files.exists(cursor.resolve("body_library")))
-            {
-                return cursor;
-            }
-            if ("ruoyi".equalsIgnoreCase(cursor.getFileName().toString()) && cursor.getParent() != null)
-            {
-                return cursor.getParent();
-            }
-            if ("ruoyi-admin".equalsIgnoreCase(cursor.getFileName().toString()) && cursor.getParent() != null
-                    && cursor.getParent().getParent() != null)
-            {
-                return cursor.getParent().getParent();
-            }
-            cursor = cursor.getParent();
-        }
-        return cwd;
     }
 }

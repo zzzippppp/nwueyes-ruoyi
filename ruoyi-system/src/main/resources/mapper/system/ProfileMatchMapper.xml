@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.ProfileMatchMapper">
+
+    <select id="searchTopFaceMatch" resultType="com.ruoyi.system.domain.vo.FaceMatchCandidateVo">
+        SELECT
+            fp.id AS faceProfileId,
+            fp.person_id AS personId,
+            p.display_name AS displayName,
+            p.person_kind AS personKind,
+            fp.image_url AS imageUrl,
+            (fp.embedding &lt;=&gt; #{embedding}::vector) AS distance,
+            (1 - (fp.embedding &lt;=&gt; #{embedding}::vector)) AS score
+        FROM face_profiles fp
+        JOIN persons p ON p.id = fp.person_id
+        WHERE fp.embedding IS NOT NULL
+          AND (fp.embedding &lt;=&gt; #{embedding}::vector) &lt;= #{maxDistance}
+        ORDER BY fp.embedding &lt;=&gt; #{embedding}::vector
+        LIMIT 1
+    </select>
+
+    <select id="searchTopOpenSessionByBody" resultType="com.ruoyi.system.domain.vo.BodySessionMatchVo">
+        SELECT
+            ps.id AS sessionId,
+            ps.person_id AS personId,
+            ps.track_key AS trackKey,
+            (ps.enter_body_embedding &lt;=&gt; #{embedding}::vector) AS distance,
+            (1 - (ps.enter_body_embedding &lt;=&gt; #{embedding}::vector)) AS score
+        FROM presence_sessions ps
+        WHERE ps.location_id = #{locationId}
+          AND ps.status = 'open'
+          AND ps.enter_body_embedding IS NOT NULL
+          AND (ps.enter_body_embedding &lt;=&gt; #{embedding}::vector) &lt;= #{maxDistance}
+        ORDER BY ps.enter_body_embedding &lt;=&gt; #{embedding}::vector
+        LIMIT 1
+    </select>
+
+    <insert id="insertFaceProfile">
+        INSERT INTO face_profiles (person_id, embedding, image_url, is_primary, created_at)
+        VALUES (#{personId}, #{embedding}::vector, #{imageUrl}, TRUE, NOW())
+    </insert>
+
+    <insert id="insertBodyProfile">
+        INSERT INTO body_profiles (person_id, embedding, image_url, is_primary, created_at)
+        VALUES (#{personId}, #{embedding}::vector, #{imageUrl}, TRUE, NOW())
+    </insert>
+
+</mapper>

@@ -59,9 +59,9 @@ spring:
   servlet:
     multipart:
       # 单个文件大小
-      max-file-size: 10MB
+      max-file-size: 30MB
       # 设置总上传的文件大小
-      max-request-size: 20MB
+      max-request-size: 30MB
   jackson:
     time-zone: GMT+8
     date-format: yyyy-MM-dd HH:mm:ss
@@ -154,3 +154,25 @@ ezviz:
   appKey: ${EZVIZ_APP_KEY:}
   appSecret: ${EZVIZ_APP_SECRET:}
   defaultChannelNo: ${EZVIZ_DEFAULT_CHANNEL_NO:1}
+
+# 识别事件接入配置
+presence:
+  ingest:
+    enabled: ${PRESENCE_INGEST_ENABLED:false}
+    apiKey: ${PRESENCE_INGEST_API_KEY:}
+    defaultLocationId: ${PRESENCE_INGEST_DEFAULT_LOCATION_ID:1}
+    workspaceRoot: ${PRESENCE_REPLAY_WORKSPACE_ROOT:E:/nwueyes/ruoyi}
+    replayPythonCommand: ${PRESENCE_REPLAY_PYTHON:python}
+    replayScriptPath: ${PRESENCE_REPLAY_SCRIPT:scripts/video_replay_worker_yolo.py}
+    analyzeScriptPath: ${PRESENCE_ANALYZE_SCRIPT:scripts/video_analyze_yolo.py}
+    captureScriptPath: ${PRESENCE_CAPTURE_SCRIPT:scripts/capture_best_snapshots.py}
+    storageRoot: ${PRESENCE_STORAGE_ROOT:E:/nwueyes}
+    snapshotWindowSec: ${PRESENCE_SNAPSHOT_WINDOW_SEC:5}
+    embedScriptPath: ${PRESENCE_EMBED_SCRIPT:scripts/embed_features.py}
+    faceEmbedModel: ${PRESENCE_FACE_EMBED_MODEL:buffalo_l}
+    bodyEmbedModel: ${PRESENCE_BODY_EMBED_MODEL:osnet_x0_25}
+    faceMinDetScore: ${PRESENCE_FACE_MIN_DET_SCORE:0.45}
+    replayProfileRoot: ${PRESENCE_REPLAY_PROFILE_ROOT:D:/ruoyi/uploadPath}
+    replayIngestBaseUrl: ${PRESENCE_REPLAY_INGEST_BASE_URL:http://localhost:8080}
+    replayLineY: ${PRESENCE_REPLAY_LINE_Y:520}
+    replayRoi: ${PRESENCE_REPLAY_ROI:620,170,1290,760}
