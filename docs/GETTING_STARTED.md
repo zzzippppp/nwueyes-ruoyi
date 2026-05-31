@@ -10,4 +10,6 @@
 | `.env.example` | 环境变量清单 |
 | `scripts/requirements.txt` | YOLO / OpenCV |
 | `scripts/requirements-embedding.txt` | InsightFace / torchreid |
-| `sql/ry_20260417.sql` | 库表初始化 |
+| `sql/ry_20260417.sql` | 若依 sys_* + pgvector |
+| `sql/migration/001_core_business.sql` | 业务表（含 behavior_logs） |
+| `sql/behavior_log.sql` | 行为日志菜单 |

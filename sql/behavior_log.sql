@@ -1,29 +1,7 @@
--- 行为日志表 + 数据看板菜单结构调整
--- 用法: psql "postgresql://postgres:root123@localhost:5432/nwueyes" -f ruoyi/sql/behavior_log.sql
+-- 行为日志菜单（表结构见 sql/migration/001_core_business.sql）
+-- 用法: psql -U postgres -d nwueyes -f ruoyi/sql/behavior_log.sql
 
 BEGIN;
-
--- ========== 行为日志表 ==========
-CREATE TABLE IF NOT EXISTS behavior_logs (
-    id              BIGSERIAL PRIMARY KEY,
-    display_name    VARCHAR(100) NOT NULL,
-    event_type      VARCHAR(16) NOT NULL CHECK (event_type IN ('enter', 'exit')),
-    event_time      TIMESTAMP NOT NULL,
-    face_image_url  VARCHAR(512) NOT NULL DEFAULT '',
-    body_image_url  VARCHAR(512) NOT NULL DEFAULT '',
-    location_id     BIGINT NOT NULL REFERENCES locations(id),
-    person_id       BIGINT REFERENCES persons(id),
-    track_key       VARCHAR(128) NOT NULL,
-    session_id      BIGINT REFERENCES presence_sessions(id),
-    person_kind     VARCHAR(32) NOT NULL CHECK (person_kind IN ('known', 'stranger', 'unknown')),
-    source          VARCHAR(32) NOT NULL,
-    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT uk_behavior_log_event UNIQUE (track_key, event_type, event_time, source)
-);
-
-CREATE INDEX IF NOT EXISTS idx_behavior_logs_event_time ON behavior_logs (event_time DESC);
-CREATE INDEX IF NOT EXISTS idx_behavior_logs_location_id ON behavior_logs (location_id);
-CREATE INDEX IF NOT EXISTS idx_behavior_logs_person_id ON behavior_logs (person_id);
 
 -- ========== 菜单：数据看板改为目录，原页面与行为日志为子菜单 ==========
 UPDATE sys_menu
