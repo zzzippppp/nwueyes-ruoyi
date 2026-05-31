@@ -51,6 +51,13 @@ venv/
 *.pt
 scripts/replay_debug.mp4
 
+# 运行时数据（storageRoot / ruoyi.profile 落盘，勿提交）
+/log_library/
+/face_library/
+/body_library/
+/capture_manifest/
+/profile_library/
+
 !*/build/*.java
 !*/build/*.html
 !*/build/*.xml
