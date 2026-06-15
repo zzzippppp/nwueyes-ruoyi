@@ -1,6 +1,7 @@
 package com.ruoyi.system.domain.vo;
 
 import java.util.Date;
+import java.util.List;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 /**
@@ -40,6 +41,20 @@ public class BehaviorLogItemVo
     private Float bodyMatchScore;
 
     private String qualityFlag;
+
+    private String sceneGroupId;
+
+    private Long clipId;
+
+    private String analysisStatus;
+
+    private PresenceVideoClipVo clip;
+
+    private PresenceVideoClipVo sceneClip;
+
+    private List<AiAnalysisResultVo> analysisResults;
+
+    private List<AiAnalysisResultVo> sceneAnalysisResults;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date createdAt;
@@ -202,6 +217,76 @@ public class BehaviorLogItemVo
     public void setQualityFlag(String qualityFlag)
     {
         this.qualityFlag = qualityFlag;
+    }
+
+    public String getSceneGroupId()
+    {
+        return sceneGroupId;
+    }
+
+    public void setSceneGroupId(String sceneGroupId)
+    {
+        this.sceneGroupId = sceneGroupId;
+    }
+
+    public Long getClipId()
+    {
+        return clipId;
+    }
+
+    public void setClipId(Long clipId)
+    {
+        this.clipId = clipId;
+    }
+
+    public String getAnalysisStatus()
+    {
+        return analysisStatus;
+    }
+
+    public void setAnalysisStatus(String analysisStatus)
+    {
+        this.analysisStatus = analysisStatus;
+    }
+
+    public PresenceVideoClipVo getClip()
+    {
+        return clip;
+    }
+
+    public void setClip(PresenceVideoClipVo clip)
+    {
+        this.clip = clip;
+    }
+
+    public PresenceVideoClipVo getSceneClip()
+    {
+        return sceneClip;
+    }
+
+    public void setSceneClip(PresenceVideoClipVo sceneClip)
+    {
+        this.sceneClip = sceneClip;
+    }
+
+    public List<AiAnalysisResultVo> getAnalysisResults()
+    {
+        return analysisResults;
+    }
+
+    public void setAnalysisResults(List<AiAnalysisResultVo> analysisResults)
+    {
+        this.analysisResults = analysisResults;
+    }
+
+    public List<AiAnalysisResultVo> getSceneAnalysisResults()
+    {
+        return sceneAnalysisResults;
+    }
+
+    public void setSceneAnalysisResults(List<AiAnalysisResultVo> sceneAnalysisResults)
+    {
+        this.sceneAnalysisResults = sceneAnalysisResults;
     }
 
     public Date getCreatedAt()

@@ -10,8 +10,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.system.domain.bo.AiAnalysisRunBo;
 import com.ruoyi.system.domain.bo.BehaviorLogImportFromVideoBo;
 import com.ruoyi.system.service.IBehaviorLogService;
+import com.ruoyi.system.service.IVideoAnalysisService;
 
 /**
  * 行为日志（数据看板子模块）
@@ -22,6 +24,9 @@ public class BehaviorLogController
 {
     @Autowired
     private IBehaviorLogService behaviorLogService;
+
+    @Autowired
+    private IVideoAnalysisService videoAnalysisService;
 
     @GetMapping("/list")
     public AjaxResult list(
@@ -37,5 +42,18 @@ public class BehaviorLogController
     public AjaxResult importFromVideo(@RequestBody BehaviorLogImportFromVideoBo bo)
     {
         return AjaxResult.success(behaviorLogService.importFromVideoAnalyze(bo));
+    }
+
+    @GetMapping("/analysis/models")
+    public AjaxResult analysisModels()
+    {
+        return AjaxResult.success(videoAnalysisService.listModelOptions());
+    }
+
+    @PostMapping("/analysis/run")
+    public AjaxResult runAnalysis(@RequestBody AiAnalysisRunBo bo)
+    {
+        videoAnalysisService.runAnalysis(bo.getTargetType(), bo.getTargetId(), bo.getModelKeys());
+        return AjaxResult.success("analysis submitted");
     }
 }

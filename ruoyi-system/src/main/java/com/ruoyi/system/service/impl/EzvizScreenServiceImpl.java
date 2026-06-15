@@ -113,6 +113,12 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         return url;
     }
 
+    @Override
+    public String getOpenApiAccessToken()
+    {
+        return getAccessToken();
+    }
+
     /**
      * 局域网 RTSP：萤石云取流 API 仅支持 protocol 1~4，RTSP 需直连摄像头局域网地址。
      */
@@ -127,6 +133,11 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         Map<String, String> infoParams = new LinkedHashMap<String, String>();
         infoParams.put("accessToken", getAccessToken());
         infoParams.put("deviceSerial", deviceSerial.trim());
+        // 设备开启视频加密后，萤石设备信息接口也可能要求携带验证码。
+        if (!StringUtils.isEmpty(validCode))
+        {
+            infoParams.put("code", validCode.trim());
+        }
         JSONObject infoResult = requestEzvizApi(DEVICE_INFO_API, infoParams);
         JSONObject data = infoResult.getJSONObject("data");
         if (data == null)

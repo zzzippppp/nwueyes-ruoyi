@@ -22,6 +22,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             bl.face_match_score AS faceMatchScore,
             bl.body_match_score AS bodyMatchScore,
             bl.quality_flag AS qualityFlag,
+            bl.scene_group_id AS sceneGroupId,
+            bl.clip_id AS clipId,
+            bl.analysis_status AS analysisStatus,
             bl.created_at AS createdAt
         FROM behavior_logs bl
         LEFT JOIN locations l ON l.id = bl.location_id

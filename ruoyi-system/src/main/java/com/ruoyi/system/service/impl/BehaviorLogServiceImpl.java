@@ -20,7 +20,11 @@ import java.time.format.DateTimeFormatter;
 
 import java.util.Date;
 
+import java.util.ArrayList;
+
 import java.util.HashMap;
+
+import java.util.HashSet;
 
 import java.util.Iterator;
 
@@ -29,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 
 import java.util.Optional;
+
+import java.util.Set;
 
 import java.util.regex.Matcher;
 
@@ -58,11 +64,17 @@ import com.ruoyi.system.domain.vo.BehaviorLogImportResultVo;
 
 import com.ruoyi.system.domain.vo.BehaviorLogItemVo;
 
+import com.ruoyi.system.domain.vo.AiAnalysisResultVo;
+
+import com.ruoyi.system.domain.vo.PresenceVideoClipVo;
+
 import com.ruoyi.system.domain.vo.PresenceReplayTaskVo;
 
 import com.ruoyi.system.domain.vo.PresenceTrackProcessResultVo;
 
 import com.ruoyi.system.mapper.BehaviorLogMapper;
+
+import com.ruoyi.system.mapper.VideoAnalysisMapper;
 
 import com.ruoyi.system.service.IBehaviorLogService;
 
@@ -102,6 +114,10 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
     private BehaviorLogMapper behaviorLogMapper;
 
+    @Autowired
+
+    private VideoAnalysisMapper videoAnalysisMapper;
+
 
 
     @Autowired
@@ -134,9 +150,255 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
     {
 
-        return behaviorLogMapper.selectBehaviorLogList(statDate, locationId, eventType,
+        List<BehaviorLogItemVo> rows = behaviorLogMapper.selectBehaviorLogList(statDate, locationId, eventType,
 
                 limit == null ? 500 : limit);
+
+        enrichVideoAnalysis(rows);
+
+        return rows;
+
+    }
+
+    private void enrichVideoAnalysis(List<BehaviorLogItemVo> rows)
+
+    {
+
+        if (rows == null || rows.isEmpty())
+
+        {
+
+            return;
+
+        }
+
+        Set<Long> clipIds = new HashSet<>();
+
+        Set<String> sceneGroupIds = new HashSet<>();
+
+        for (BehaviorLogItemVo row : rows)
+
+        {
+
+            if (row.getClipId() != null)
+
+            {
+
+                clipIds.add(row.getClipId());
+
+            }
+
+            if (!StringUtils.isEmpty(row.getSceneGroupId()))
+
+            {
+
+                sceneGroupIds.add(row.getSceneGroupId());
+
+            }
+
+        }
+
+        Map<Long, PresenceVideoClipVo> clipMap = new HashMap<>();
+
+        if (!clipIds.isEmpty())
+
+        {
+
+            for (PresenceVideoClipVo clip : videoAnalysisMapper.selectClipsByIds(new ArrayList<>(clipIds)))
+
+            {
+
+                clipMap.put(clip.getId(), clip);
+
+            }
+
+        }
+
+        Map<String, PresenceVideoClipVo> sceneClipMap = new HashMap<>();
+
+        if (!sceneGroupIds.isEmpty())
+
+        {
+
+            for (PresenceVideoClipVo clip : videoAnalysisMapper.selectSceneClips(new ArrayList<>(sceneGroupIds)))
+
+            {
+
+                sceneClipMap.put(clip.getSceneGroupId(), clip);
+
+            }
+
+        }
+
+        Map<String, List<AiAnalysisResultVo>> clipAnalysis = loadAnalysis("clip", clipIds);
+
+        Map<String, List<AiAnalysisResultVo>> sceneAnalysis = loadAnalysis("scene_group", sceneGroupIds);
+
+        for (BehaviorLogItemVo row : rows)
+
+        {
+
+            if (row.getClipId() != null)
+
+            {
+
+                PresenceVideoClipVo clip = clipMap.get(row.getClipId());
+
+                row.setClip(clip);
+
+                List<AiAnalysisResultVo> results = clipAnalysis.get(String.valueOf(row.getClipId()));
+
+                row.setAnalysisResults(results);
+
+            }
+
+            if (!StringUtils.isEmpty(row.getSceneGroupId()))
+
+            {
+
+                PresenceVideoClipVo sceneClip = sceneClipMap.get(row.getSceneGroupId());
+
+                row.setSceneClip(sceneClip);
+
+                row.setSceneAnalysisResults(sceneAnalysis.get(row.getSceneGroupId()));
+
+            }
+
+            row.setAnalysisStatus(resolveAnalysisStatus(row));
+
+        }
+
+    }
+
+    private Map<String, List<AiAnalysisResultVo>> loadAnalysis(String targetType, Set<?> rawIds)
+
+    {
+
+        Map<String, List<AiAnalysisResultVo>> map = new HashMap<>();
+
+        if (rawIds == null || rawIds.isEmpty())
+
+        {
+
+            return map;
+
+        }
+
+        List<String> targetIds = new ArrayList<>();
+
+        for (Object id : rawIds)
+
+        {
+
+            if (id != null)
+
+            {
+
+                targetIds.add(String.valueOf(id));
+
+            }
+
+        }
+
+        if (targetIds.isEmpty())
+
+        {
+
+            return map;
+
+        }
+
+        for (AiAnalysisResultVo result : videoAnalysisMapper.selectAnalysisByTargets(targetType, targetIds))
+
+        {
+
+            map.computeIfAbsent(result.getTargetId(), k -> new ArrayList<>()).add(result);
+
+        }
+
+        return map;
+
+    }
+
+    private String resolveAnalysisStatus(BehaviorLogItemVo row)
+
+    {
+
+        List<AiAnalysisResultVo> personal = row.getAnalysisResults();
+
+        List<AiAnalysisResultVo> scene = row.getSceneAnalysisResults();
+
+        if ((personal == null || personal.isEmpty()) && (scene == null || scene.isEmpty()))
+
+        {
+
+            return StringUtils.nvl(row.getAnalysisStatus(), row.getClipId() == null ? "none" : "pending");
+
+        }
+
+        if (hasStatus(personal, "pending") || hasStatus(scene, "pending"))
+
+        {
+
+            return "pending";
+
+        }
+
+        if (hasStatus(personal, "success") || hasStatus(scene, "success"))
+
+        {
+
+            if (hasStatus(personal, "failed") || hasStatus(scene, "failed"))
+
+            {
+
+                return "partial";
+
+            }
+
+            return "success";
+
+        }
+
+        if (hasStatus(personal, "skipped") || hasStatus(scene, "skipped"))
+
+        {
+
+            return "skipped";
+
+        }
+
+        return "failed";
+
+    }
+
+    private boolean hasStatus(List<AiAnalysisResultVo> results, String status)
+
+    {
+
+        if (results == null)
+
+        {
+
+            return false;
+
+        }
+
+        for (AiAnalysisResultVo result : results)
+
+        {
+
+            if (status.equals(result.getStatus()))
+
+            {
+
+                return true;
+
+            }
+
+        }
+
+        return false;
 
     }
 

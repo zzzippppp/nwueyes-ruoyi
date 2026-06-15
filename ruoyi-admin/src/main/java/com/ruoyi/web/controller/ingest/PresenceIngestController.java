@@ -13,12 +13,14 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.config.PresenceIngestProperties;
 import com.ruoyi.system.domain.bo.PresenceEventIngestBo;
+import com.ruoyi.system.domain.bo.PresenceVideoClipIngestBo;
 import com.ruoyi.system.domain.bo.PresenceReplayStartBo;
 import com.ruoyi.system.domain.vo.PresenceIngestResultVo;
 import com.ruoyi.system.domain.vo.PresenceReplayTaskVo;
 import com.ruoyi.system.service.IPresenceEmbedService;
 import com.ruoyi.system.service.IPresenceIngestAsyncService;
 import com.ruoyi.system.service.IPresenceIngestService;
+import com.ruoyi.system.service.IPresenceVideoClipService;
 import com.ruoyi.system.service.IPresenceReplayService;
 import com.ruoyi.system.domain.vo.AnalyzeEmbedResultVo;
 import com.ruoyi.system.domain.vo.PresenceDoorConfigVo;
@@ -48,6 +50,9 @@ public class PresenceIngestController
 
     @Autowired
     private IPresenceIngestAsyncService presenceIngestAsyncService;
+
+    @Autowired
+    private IPresenceVideoClipService presenceVideoClipService;
 
     @PostMapping("/event")
     @Anonymous
@@ -79,6 +84,26 @@ public class PresenceIngestController
 
         PresenceIngestResultVo result = presenceIngestService.ingest(bo);
         return AjaxResult.success(result);
+    }
+
+    @PostMapping("/clip")
+    @Anonymous
+    public AjaxResult ingestClip(@RequestBody PresenceVideoClipIngestBo bo,
+            @RequestHeader(value = INGEST_KEY_HEADER, required = false) String ingestKey)
+    {
+        if (!ingestProperties.isEnabled())
+        {
+            return AjaxResult.error("presence ingest disabled");
+        }
+        if (!StringUtils.isEmpty(ingestProperties.getApiKey()) && !ingestProperties.getApiKey().equals(ingestKey))
+        {
+            return AjaxResult.error("ingest key invalid");
+        }
+        if (bo.getLocationId() == null)
+        {
+            bo.setLocationId(ingestProperties.getDefaultLocationId());
+        }
+        return AjaxResult.success(presenceVideoClipService.ingestClip(bo));
     }
 
     @GetMapping("/door-config")

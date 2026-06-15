@@ -18,4 +18,9 @@ public interface IEzvizScreenService
      * @param streamMode lan_rtsp | cloud_hls
      */
     String resolveAnalyzeStreamUrl(String deviceSerial, Integer channelNo, String streamMode, String validCode);
+
+    /**
+     * Return a cached OpenAPI access token for internal Ezviz service calls.
+     */
+    String getOpenApiAccessToken();
 }
