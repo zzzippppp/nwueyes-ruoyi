@@ -36,11 +36,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                     ELSE 't:' || ps.track_key
                 END)::bigint AS visitor_count,
                 COUNT(DISTINCT CASE
-                    WHEN ps.person_id IS NOT NULL AND p.person_kind = 'known' THEN ps.person_id
+                    WHEN ps.person_id IS NOT NULL AND p.person_type IN ('student', 'staff') THEN ps.person_id
                 END)::bigint AS known_visitor_count,
                 COUNT(DISTINCT CASE
                     WHEN ps.person_id IS NULL THEN ps.track_key
-                    WHEN p.person_kind = 'stranger' THEN 'p:' || ps.person_id::text
+                    WHEN p.person_type = 'stranger' THEN 'p:' || ps.person_id::text
                 END)::bigint AS stranger_visitor_count,
                 COALESCE(SUM(
                     CASE WHEN ps.status = 'closed' THEN ps.dwell_seconds ELSE 0 END
@@ -113,7 +113,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             ps.id AS sessionId,
             ps.person_id AS personId,
             COALESCE(p.display_name, '未知访客') AS displayName,
-            COALESCE(p.person_kind::text, 'stranger') AS personKind,
+            COALESCE(p.person_type::text, 'stranger') AS personKind,
             l.name AS locationName,
             ps.arrival_at AS arrivalAt,
             ps.departure_at AS departureAt,
@@ -150,18 +150,19 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SELECT
             p.id AS personId,
             p.display_name AS displayName,
-            p.person_kind::text AS personKind,
+            p.person_type::text AS personKind,
+            p.employee_no AS employeeNo,
             COALESCE(array_to_string(p.tags, ','), '') AS tagsText,
             COALESCE(p.note, '') AS note,
-            fp.image_url AS face_image_url,
+            COALESCE(p.face_image_url, fp.image_url) AS face_image_url,
             bp.image_url AS body_image_url,
-            latest.last_seen_at AS lastSeenAt
+            latest.arrival_at AS lastSeenAt
         FROM persons p
         LEFT JOIN LATERAL (
-            SELECT ps.last_seen_at
+            SELECT ps.arrival_at
             FROM presence_sessions ps
             WHERE ps.person_id = p.id
-            ORDER BY ps.last_seen_at DESC
+            ORDER BY ps.arrival_at DESC
             LIMIT 1
         ) latest ON TRUE
         LEFT JOIN LATERAL (
@@ -202,7 +203,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
               <if test="locationId != null">
                 AND ps.location_id = #{locationId}
               </if>
-              AND (ps.person_id IS NULL OR p.person_kind = 'stranger')
+              AND (ps.person_id IS NULL OR p.person_type = 'stranger')
             ORDER BY ps.track_key, ps.arrival_at DESC
         ) x
         LEFT JOIN LATERAL (
@@ -218,7 +219,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <update id="updatePerson">
         UPDATE persons
         SET display_name = #{displayName},
-            person_kind = CAST(#{personKind} AS person_kind),
+            person_type = CAST(#{personType} AS person_type),
+            employee_no = #{employeeNo},
             tags = CASE
                 WHEN #{tagsText} IS NULL OR #{tagsText} = '' THEN ARRAY[]::text[]
                 ELSE string_to_array(#{tagsText}, ',')
@@ -226,6 +228,30 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             note = #{note},
             updated_at = NOW()
         WHERE id = #{personId}
+    </update>
+
+    <select id="selectPersonByEmployeeNo" resultType="java.lang.Long">
+        SELECT id FROM persons WHERE employee_no = #{employeeNo} LIMIT 1
+    </select>
+
+    <update id="reassignSessionsPerson">
+        UPDATE presence_sessions SET person_id = #{toPersonId}, updated_at = NOW() WHERE person_id = #{fromPersonId}
+    </update>
+
+    <update id="reassignBehaviorLogsPerson">
+        UPDATE behavior_logs SET person_id = #{toPersonId} WHERE person_id = #{fromPersonId}
+    </update>
+
+    <update id="reassignDailyPerson">
+        UPDATE person_daily_attendance SET person_id = #{toPersonId}, updated_at = NOW() WHERE person_id = #{fromPersonId}
+    </update>
+
+    <update id="reassignFaceProfilesPerson">
+        UPDATE face_profiles SET person_id = #{toPersonId} WHERE person_id = #{fromPersonId}
+    </update>
+
+    <update id="reassignBodyProfilesPerson">
+        UPDATE body_profiles SET person_id = #{toPersonId} WHERE person_id = #{fromPersonId}
     </update>
 
     <delete id="deletePerson">
@@ -246,6 +272,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <delete id="deleteSession">
         DELETE FROM presence_sessions WHERE id = #{sessionId}
+    </delete>
+
+    <delete id="deleteBehaviorLogsByTrackKey">
+        DELETE FROM behavior_logs WHERE track_key = #{trackKey}
     </delete>
 
     <delete id="deleteStrangerByTrackKey">
@@ -274,10 +304,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </select>
 
     <insert id="insertPerson">
-        INSERT INTO persons (display_name, person_kind, tags, note, created_at, updated_at)
+        INSERT INTO persons (display_name, person_type, employee_no, tags, note, created_at, updated_at)
         VALUES (
             #{displayName},
-            CAST(#{personKind} AS person_kind),
+            CAST(#{personType} AS person_type),
+            #{employeeNo},
             CASE
                 WHEN #{tagsText} IS NULL OR #{tagsText} = '' THEN ARRAY[]::text[]
                 ELSE string_to_array(#{tagsText}, ',')

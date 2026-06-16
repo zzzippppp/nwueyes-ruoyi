@@ -140,98 +140,92 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
     }
 
+    @Override
+    public boolean deleteBehaviorLog(Long id)
+    {
+        return id != null && behaviorLogMapper.deleteById(id) > 0;
+    }
+
 
 
     @Override
-
     public void recordLiveIngest(PresenceEventIngestBo bo, Date eventTime, PresenceTrackProcessResultVo processed)
-
     {
-
         if (bo == null || processed == null || eventTime == null)
-
         {
-
             return;
-
         }
-
+        if (processed.isSkippedDuplicateEnter())
+        {
+            return;
+        }
         String eventType = StringUtils.nvl(bo.getEventType(), "").toLowerCase();
-
         if (!"enter".equals(eventType) && !"exit".equals(eventType))
-
         {
-
             return;
-
         }
-
         String trackKey = StringUtils.nvl(bo.getTrackKey(), "");
-
         if (StringUtils.isEmpty(trackKey) || bo.getLocationId() == null)
-
         {
-
             return;
-
+        }
+        if (behaviorLogMapper.countByUniqueKey(trackKey, eventType, eventTime) > 0)
+        {
+            return;
         }
 
-        if (behaviorLogMapper.countByUniqueKey(trackKey, eventType, eventTime, SOURCE_LIVE) > 0)
-
+        String snapshotUrl = StringUtils.nvl(bo.getSnapshotUrl(), "");
+        if (StringUtils.isEmpty(snapshotUrl))
         {
-
-            return;
-
+            snapshotUrl = StringUtils.nvl(bo.getFaceImageUrl(), "");
         }
-
-        String displayName = StringUtils.nvl(processed.getDisplayName(), "未登记-" + trackKey);
-
-        String personKind = normalizeBehaviorPersonKind(processed.getPersonKind());
-
-        String qualityFlag = StringUtils.nvl(bo.getQualityFlag(), resolveQualityFlag(bo.getFaceImageUrl(), bo.getBodyImageUrl()));
-
-
+        String qualityFlag = StringUtils.nvl(bo.getQualityFlag(),
+                resolveQualityFlag(bo.getFaceImageUrl(), bo.getBodyImageUrl()));
 
         BehaviorLogItemVo row = new BehaviorLogItemVo();
-
-        row.setDisplayName(displayName);
-
         row.setEventType(eventType);
-
         row.setEventTime(eventTime);
-
-        row.setFaceImageUrl(StringUtils.nvl(bo.getFaceImageUrl(), ""));
-
-        row.setBodyImageUrl(StringUtils.nvl(bo.getBodyImageUrl(), ""));
-
+        row.setSnapshotUrl(snapshotUrl);
         row.setLocationId(bo.getLocationId());
-
         row.setPersonId(processed.getPersonId());
-
         row.setTrackKey(trackKey);
-
         row.setSessionId(processed.getSessionId());
-
-        row.setPersonKind(personKind);
-
-        row.setSource(SOURCE_LIVE);
-
+        row.setBehaviorAnalysis(bo.getBehaviorAnalysis());
         behaviorLogMapper.insertBehaviorLog(row);
 
-
-
         if (row.getId() != null)
-
         {
-
-            behaviorLogMapper.updateBehaviorLogPresence(row.getId(), displayName, processed.getPersonId(),
-
-                    processed.getSessionId(), personKind, processed.getFaceMatchScore(),
-
+            behaviorLogMapper.updateBehaviorLogPresence(row.getId(), processed.getPersonId(),
+                    processed.getSessionId(), processed.getFaceMatchScore(),
                     processed.getBodyMatchScore(), qualityFlag);
-
+            promoteSnapshot(row, eventTime.toInstant().atZone(ZoneId.of("Asia/Shanghai")).toLocalDate());
         }
+    }
 
+    private void promoteSnapshot(BehaviorLogItemVo row, LocalDate eventDate)
+    {
+        if (row.getId() == null || StringUtils.isEmpty(row.getSnapshotUrl()))
+        {
+            return;
+        }
+        try
+        {
+            java.util.Optional<Path> sourceOpt = storagePaths.resolveImageUrlToFile(row.getSnapshotUrl());
+            if (sourceOpt.isEmpty())
+            {
+                return;
+            }
+            String url = storagePaths.promoteToSnapshot(sourceOpt.get(), eventDate, row.getId());
+            if (!StringUtils.isEmpty(url))
+            {
+                behaviorLogMapper.updateBehaviorLogSnapshot(row.getId(), url);
+                row.setSnapshotUrl(url);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.warn("snapshot promote failed logId={}: {}", row.getId(), ex.getMessage());
+        }
     }
 
 
@@ -420,7 +414,7 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
 
 
-            if (behaviorLogMapper.countByUniqueKey(trackKey, eventType, eventDate, SOURCE_VIDEO_TEST) > 0)
+            if (behaviorLogMapper.countByUniqueKey(trackKey, eventType, eventDate) > 0)
 
             {
 
@@ -475,43 +469,20 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
                 }
 
                 BehaviorLogItemVo row = new BehaviorLogItemVo();
-
-                row.setDisplayName(StringUtils.nvl(processed.getDisplayName(), "未登记-" + trackKey));
-
                 row.setEventType(eventType);
-
                 row.setEventTime(eventDate);
-
-                row.setFaceImageUrl(StringUtils.nvl(urls.faceUrl, ""));
-
-                row.setBodyImageUrl(StringUtils.nvl(urls.bodyUrl, ""));
-
+                row.setSnapshotUrl(StringUtils.nvl(urls.bodyUrl, urls.faceUrl));
                 row.setLocationId(locationId);
-
                 row.setPersonId(processed.getPersonId());
-
                 row.setTrackKey(trackKey);
-
                 row.setSessionId(processed.getSessionId());
-
-                row.setPersonKind(normalizeBehaviorPersonKind(processed.getPersonKind()));
-
-                row.setSource(SOURCE_VIDEO_TEST);
-
                 behaviorLogMapper.insertBehaviorLog(row);
-
-                promoteLogImages(row, eventTime.toLocalDate());
-
+                promoteSnapshot(row, eventTime.toLocalDate());
                 if (row.getId() != null)
-
                 {
-
-                    behaviorLogMapper.updateBehaviorLogPresence(row.getId(), row.getDisplayName(), processed.getPersonId(),
-
-                            processed.getSessionId(), row.getPersonKind(), processed.getFaceMatchScore(),
-
+                    behaviorLogMapper.updateBehaviorLogPresence(row.getId(), processed.getPersonId(),
+                            processed.getSessionId(), processed.getFaceMatchScore(),
                             processed.getBodyMatchScore(), StringUtils.nvl(processed.getQualityFlag(), qualityFlag));
-
                 }
 
                 inserted++;
@@ -523,43 +494,23 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
 
             BehaviorLogItemVo row = new BehaviorLogItemVo();
-
-            row.setDisplayName("未登记-" + trackKey);
-
             row.setEventType(eventType);
-
             row.setEventTime(eventDate);
-
-            row.setFaceImageUrl(StringUtils.nvl(urls.faceUrl, ""));
-
-            row.setBodyImageUrl(StringUtils.nvl(urls.bodyUrl, ""));
-
+            row.setSnapshotUrl(StringUtils.nvl(urls.bodyUrl, urls.faceUrl));
             row.setLocationId(locationId);
-
             row.setPersonId(null);
-
             row.setTrackKey(trackKey);
-
             row.setSessionId(null);
-
-            row.setPersonKind("stranger");
-
-            row.setSource(SOURCE_VIDEO_TEST);
-
             behaviorLogMapper.insertBehaviorLog(row);
-
-            promoteLogImages(row, eventTime.toLocalDate());
-
+            promoteSnapshot(row, eventTime.toLocalDate());
             if (!applyExitPresencePipeline(row, locationId, trackKey, eventDate, urls))
-
             {
-
                 sessionSkipped++;
-
-                behaviorLogMapper.updateBehaviorLogPresence(row.getId(), row.getDisplayName(), null, null,
-
-                        row.getPersonKind(), null, null, qualityFlag);
-
+                if (row.getId() != null)
+                {
+                    behaviorLogMapper.updateBehaviorLogPresence(row.getId(), null, null,
+                            null, null, qualityFlag);
+                }
             }
 
             inserted++;
@@ -615,13 +566,11 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
         String displayName = StringUtils.nvl(processed.getDisplayName(), row.getDisplayName());
         String personKind = StringUtils.nvl(processed.getPersonKind(), row.getPersonKind());
         String resolvedQuality = StringUtils.nvl(processed.getQualityFlag(), qualityFlag);
-        behaviorLogMapper.updateBehaviorLogPresence(row.getId(), displayName, processed.getPersonId(),
-                processed.getSessionId(), personKind, processed.getFaceMatchScore(),
+        behaviorLogMapper.updateBehaviorLogPresence(row.getId(), processed.getPersonId(),
+                processed.getSessionId(), processed.getFaceMatchScore(),
                 processed.getBodyMatchScore(), resolvedQuality);
-        row.setDisplayName(displayName);
         row.setPersonId(processed.getPersonId());
         row.setSessionId(processed.getSessionId());
-        row.setPersonKind(personKind);
         row.setFaceMatchScore(processed.getFaceMatchScore());
         row.setBodyMatchScore(processed.getBodyMatchScore());
         row.setQualityFlag(resolvedQuality);
@@ -766,94 +715,6 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
         }
 
         return LocalDateTime.now();
-
-    }
-
-
-
-    private void promoteLogImages(BehaviorLogItemVo row, LocalDate eventDate)
-
-    {
-
-        if (row.getId() == null)
-
-        {
-
-            return;
-
-        }
-
-        try
-
-        {
-
-            String faceUrl = promoteLogImage(row.getFaceImageUrl(), eventDate, row.getId(), true);
-
-            String bodyUrl = promoteLogImage(row.getBodyImageUrl(), eventDate, row.getId(), false);
-
-            if (!faceUrl.equals(StringUtils.nvl(row.getFaceImageUrl(), ""))
-
-                    || !bodyUrl.equals(StringUtils.nvl(row.getBodyImageUrl(), "")))
-
-            {
-
-                behaviorLogMapper.updateBehaviorLogImages(row.getId(), faceUrl, bodyUrl);
-
-                row.setFaceImageUrl(faceUrl);
-
-                row.setBodyImageUrl(bodyUrl);
-
-            }
-
-        }
-
-        catch (Exception ex)
-
-        {
-
-            throw new IllegalStateException("行为日志图片落盘失败: " + ex.getMessage(), ex);
-
-        }
-
-    }
-
-
-
-    private String promoteLogImage(String sourceUrl, LocalDate eventDate, long logId, boolean face)
-
-            throws java.io.IOException
-
-    {
-
-        if (StringUtils.isEmpty(sourceUrl))
-
-        {
-
-            return "";
-
-        }
-
-        Optional<Path> sourceOpt = storagePaths.resolveImageUrlToFile(sourceUrl);
-
-        if (sourceOpt.isEmpty())
-
-        {
-
-            return sourceUrl;
-
-        }
-
-        Path source = sourceOpt.get();
-
-        if (face)
-
-        {
-
-            return storagePaths.promoteToLogFace(source, eventDate, logId);
-
-        }
-
-        return storagePaths.promoteToLogBody(source, eventDate, logId);
 
     }
 

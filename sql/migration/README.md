@@ -11,6 +11,7 @@ psql -U postgres -d nwueyes -f ruoyi/sql/ry_20260417.sql
 psql -U postgres -d nwueyes -f ruoyi/sql/migration/001_core_business.sql
 psql -U postgres -d nwueyes -f ruoyi/sql/behavior_log.sql
 # 002 仅旧库升级需要，新装可跳过
+psql -U postgres -d nwueyes -f ruoyi/sql/migration/003_fk_on_delete_set_null.sql
 ```
 
 可选演示数据：
@@ -41,6 +42,40 @@ psql -U postgres -d nwueyes -f ruoyi/sql/seed_behavior_log_demo.sql
 ## 002_storage_and_vectors.sql
 
 仅用于 **001 之前的老库** 补 `enter_body_embedding`、`quality_flag` 等字段；新装跑完 001 即可。
+
+## 004_attendance_extend.sql
+
+考勤模块扩展（在现有表上 ALTER + 新建日汇总表）：
+
+- `persons`：`employee_no`、`person_type`（student/staff/stranger），`known` → `student`
+- `locations`：`line_y`、`roi`、参考分辨率
+- `presence_sessions`：`attendance_date`，移除 `last_seen_at`
+- `behavior_logs`：`snapshot_url`、视频字段，移除 `source`/冗余列
+- 新建 `person_daily_attendance`、`attendance_daily_stats`
+- 外键改为 `ON DELETE CASCADE`
+
+```bash
+psql -U postgres -d nwueyes -f ruoyi/sql/migration/004_attendance_extend.sql
+psql -U postgres -d nwueyes -f ruoyi/sql/migration/005_behavior_analysis.sql
+```
+
+修复后台**无法删除人员档案 / 停留记录**（被 `behavior_logs` 外键引用）。新装 001 已含 `ON DELETE SET NULL`，老库需执行本文件。
+
+## 005_behavior_analysis.sql
+
+为 `behavior_logs` 增加 `behavior_analysis`（TEXT，自然语言行为分析描述）。已有库执行：
+
+```bash
+psql -U postgres -d nwueyes -f ruoyi/sql/migration/005_behavior_analysis.sql
+```
+
+## 清空业务数据
+
+```bash
+psql -U postgres -d nwueyes -f ruoyi/sql/scripts/cleanup_nwueyes_data.sql
+```
+
+并手动删除 `storageRoot` 下 `log_library/`、`face_library/`、`body_library/`（配置见 `application-local.yml`）。
 
 ## 存储目录约定
 

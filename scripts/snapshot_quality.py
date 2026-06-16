@@ -186,6 +186,7 @@ class LiveEventCapture:
     best_body_score: float = -1.0
     best_face_img: Optional[np.ndarray] = None
     best_body_img: Optional[np.ndarray] = None
+    best_frame_img: Optional[np.ndarray] = None
 
     def __post_init__(self):
         if self.deadline <= 0:
@@ -219,6 +220,8 @@ class LiveEventCapture:
             self.best_body_score = bs
             self.best_body_img = body.copy()
             updated = True
+        if updated:
+            self.best_frame_img = frame.copy()
         return updated
 
     def expired(self, now: float) -> bool:
@@ -318,8 +321,9 @@ def save_live_event_snapshot(
     event_type: str,
     face_img,
     body_img,
-) -> tuple[str, str]:
-    """直播过线事件落盘，返回 face/body URL。"""
+    frame_img=None,
+) -> tuple[str, str, str]:
+    """直播过线事件落盘，返回 face_url, body_url, snapshot_url。"""
     import os
     import time as _time
 
@@ -329,12 +333,15 @@ def save_live_event_snapshot(
     dd = _time.strftime("%d", now)
     face_dir = os.path.join(storage_root, "log_library", "face", yyyy, mm, dd)
     body_dir = os.path.join(storage_root, "log_library", "body", yyyy, mm, dd)
+    snap_dir = os.path.join(storage_root, "snapshot_library", yyyy, mm, dd)
     os.makedirs(face_dir, exist_ok=True)
     os.makedirs(body_dir, exist_ok=True)
+    os.makedirs(snap_dir, exist_ok=True)
     date_url = f"{yyyy}/{mm}/{dd}"
     ts = int(_time.time() * 1000)
     face_url = ""
     body_url = ""
+    snapshot_url = ""
     if face_img is not None and face_img.size > 0 and event_type == "enter":
         face_name = f"live_{task_id}_{track_key}_{ts}_face.jpg"
         cv2.imwrite(os.path.join(face_dir, face_name), face_img)
@@ -343,4 +350,9 @@ def save_live_event_snapshot(
         body_name = f"live_{task_id}_{track_key}_{ts}_body.jpg"
         cv2.imwrite(os.path.join(body_dir, body_name), body_img)
         body_url = f"/dashboard/storage/file/log/body/{date_url}/{body_name}"
-    return face_url, body_url
+    snap_src = frame_img if frame_img is not None and getattr(frame_img, "size", 0) > 0 else body_img
+    if snap_src is not None and snap_src.size > 0:
+        snap_name = f"live_{task_id}_{track_key}_{ts}_snap.jpg"
+        cv2.imwrite(os.path.join(snap_dir, snap_name), snap_src)
+        snapshot_url = f"/dashboard/storage/file/snapshot/{date_url}/{snap_name}"
+    return face_url, body_url, snapshot_url

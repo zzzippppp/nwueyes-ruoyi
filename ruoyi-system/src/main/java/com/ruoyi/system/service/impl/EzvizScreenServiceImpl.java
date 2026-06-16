@@ -104,7 +104,11 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         {
             throw new ServiceException("萤石直播地址响应缺少 data");
         }
-        String url = firstNotBlank(data.getString("url"), data.getString("hdUrl"), data.getString("rtmpUrl"));
+        // quality=1 主码流时萤石常把高清地址放在 hdUrl，url 可能是低清预览（如 768x432）
+        int quality = ingestProperties.getLive().getEzvizCloudQuality();
+        String url = quality == 1
+                ? firstNotBlank(data.getString("hdUrl"), data.getString("url"), data.getString("rtmpUrl"))
+                : firstNotBlank(data.getString("url"), data.getString("hdUrl"), data.getString("rtmpUrl"));
         if (StringUtils.isEmpty(url))
         {
             throw new ServiceException(lanRtsp ? "萤石未返回 RTSP 地址，请确认设备支持局域网 RTSP"

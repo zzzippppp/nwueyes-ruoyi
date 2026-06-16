@@ -20,4 +20,6 @@ public interface ProfileMatchMapper
 
   int insertBodyProfile(@Param("personId") Long personId, @Param("embedding") String embeddingLiteral,
       @Param("imageUrl") String imageUrl);
+
+  int insertBodyProfileImageOnly(@Param("personId") Long personId, @Param("imageUrl") String imageUrl);
 }

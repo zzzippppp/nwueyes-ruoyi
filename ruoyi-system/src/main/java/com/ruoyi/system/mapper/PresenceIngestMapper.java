@@ -17,18 +17,11 @@ public interface PresenceIngestMapper
     PresenceOpenSessionVo selectLatestOpenByLocation(@Param("locationId") Long locationId);
 
     Long insertOpenSession(@Param("locationId") Long locationId, @Param("personId") Long personId,
-            @Param("trackKey") String trackKey, @Param("eventTime") Date eventTime, @Param("faceImageUrl") String faceImageUrl,
-            @Param("bodyImageUrl") String bodyImageUrl, @Param("bestMatchScore") Float bestMatchScore,
-            @Param("enterFaceEmbedding") String enterFaceEmbedding,
-            @Param("enterBodyEmbedding") String enterBodyEmbedding);
-
-    int touchOpenSession(@Param("sessionId") Long sessionId, @Param("eventTime") Date eventTime, @Param("personId") Long personId,
-            @Param("faceImageUrl") String faceImageUrl, @Param("bodyImageUrl") String bodyImageUrl,
+            @Param("trackKey") String trackKey, @Param("eventTime") Date eventTime,
             @Param("bestMatchScore") Float bestMatchScore,
             @Param("enterFaceEmbedding") String enterFaceEmbedding,
             @Param("enterBodyEmbedding") String enterBodyEmbedding);
 
     int closeSession(@Param("sessionId") Long sessionId, @Param("eventTime") Date eventTime, @Param("personId") Long personId,
-            @Param("faceImageUrl") String faceImageUrl, @Param("bodyImageUrl") String bodyImageUrl,
             @Param("bestMatchScore") Float bestMatchScore);
 }

@@ -70,11 +70,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             location_id,
             person_id,
             track_key,
+            attendance_date,
             arrival_at,
-            last_seen_at,
             status,
-            face_image_url,
-            body_image_url,
             best_match_score,
             enter_face_embedding,
             enter_body_embedding,
@@ -85,11 +83,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             #{locationId},
             #{personId},
             #{trackKey},
-            #{eventTime},
+            (#{eventTime} AT TIME ZONE 'Asia/Shanghai')::date,
             #{eventTime},
             'open',
-            #{faceImageUrl},
-            #{bodyImageUrl},
             #{bestMatchScore},
             CAST(#{enterFaceEmbedding} AS vector),
             CAST(#{enterBodyEmbedding} AS vector),
@@ -99,29 +95,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         RETURNING id
     </select>
 
-    <update id="touchOpenSession">
-        UPDATE presence_sessions
-        SET last_seen_at = GREATEST(last_seen_at, #{eventTime}),
-            person_id = COALESCE(#{personId}, person_id),
-            face_image_url = COALESCE(#{faceImageUrl}, face_image_url),
-            body_image_url = COALESCE(#{bodyImageUrl}, body_image_url),
-            best_match_score = COALESCE(#{bestMatchScore}, best_match_score),
-            enter_face_embedding = COALESCE(CAST(#{enterFaceEmbedding} AS vector), enter_face_embedding),
-            enter_body_embedding = COALESCE(CAST(#{enterBodyEmbedding} AS vector), enter_body_embedding),
-            updated_at = NOW()
-        WHERE id = #{sessionId}
-          AND status = 'open'
-    </update>
-
     <update id="closeSession">
         UPDATE presence_sessions
         SET person_id = COALESCE(#{personId}, person_id),
             departure_at = #{eventTime},
-            last_seen_at = GREATEST(last_seen_at, #{eventTime}),
             dwell_seconds = GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (#{eventTime} - arrival_at))))::int,
             status = 'closed',
-            face_image_url = COALESCE(#{faceImageUrl}, face_image_url),
-            body_image_url = COALESCE(#{bodyImageUrl}, body_image_url),
             best_match_score = COALESCE(#{bestMatchScore}, best_match_score),
             updated_at = NOW()
         WHERE id = #{sessionId}

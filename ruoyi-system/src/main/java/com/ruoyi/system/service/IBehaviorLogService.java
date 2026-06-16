@@ -19,4 +19,6 @@ public interface IBehaviorLogService
      * 直播/实时 ingest 成功后写入行为日志（source=live）。
      */
     void recordLiveIngest(PresenceEventIngestBo bo, Date eventTime, PresenceTrackProcessResultVo processed);
+
+    boolean deleteBehaviorLog(Long id);
 }

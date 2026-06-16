@@ -9,7 +9,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             fp.id AS faceProfileId,
             fp.person_id AS personId,
             p.display_name AS displayName,
-            p.person_kind AS personKind,
+            p.person_type::text AS personKind,
             fp.image_url AS imageUrl,
             (fp.embedding &lt;=&gt; #{embedding}::vector) AS distance,
             (1 - (fp.embedding &lt;=&gt; #{embedding}::vector)) AS score
@@ -45,6 +45,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <insert id="insertBodyProfile">
         INSERT INTO body_profiles (person_id, embedding, image_url, is_primary, created_at)
         VALUES (#{personId}, #{embedding}::vector, #{imageUrl}, TRUE, NOW())
+    </insert>
+
+    <insert id="insertBodyProfileImageOnly">
+        INSERT INTO body_profiles (person_id, image_url, is_primary, created_at)
+        VALUES (#{personId}, #{imageUrl}, TRUE, NOW())
     </insert>
 
 </mapper>

@@ -7,24 +7,28 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectBehaviorLogList" resultType="com.ruoyi.system.domain.vo.BehaviorLogItemVo">
         SELECT
             bl.id,
-            bl.display_name AS displayName,
+            p.display_name AS displayName,
+            p.person_type::text AS personType,
+            p.person_type::text AS personKind,
+            p.employee_no AS employeeNo,
             bl.event_type AS eventType,
             bl.event_time AS eventTime,
-            bl.face_image_url AS faceImageUrl,
-            bl.body_image_url AS bodyImageUrl,
+            bl.snapshot_url AS snapshotUrl,
+            bl.snapshot_url AS faceImageUrl,
+            bl.video_url AS videoUrl,
             bl.location_id AS locationId,
             l.name AS locationName,
             bl.person_id AS personId,
             bl.track_key AS trackKey,
             bl.session_id AS sessionId,
-            bl.person_kind AS personKind,
-            bl.source,
             bl.face_match_score AS faceMatchScore,
             bl.body_match_score AS bodyMatchScore,
             bl.quality_flag AS qualityFlag,
+            bl.behavior_analysis AS behaviorAnalysis,
             bl.created_at AS createdAt
         FROM behavior_logs bl
         LEFT JOIN locations l ON l.id = bl.location_id
+        LEFT JOIN persons p ON p.id = bl.person_id
         <where>
             <if test="statDate != null">
                 bl.event_time &gt;= #{statDate}::date
@@ -49,56 +53,58 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         WHERE track_key = #{trackKey}
           AND event_type = #{eventType}
           AND event_time = #{eventTime}
-          AND source = #{source}
     </select>
 
     <insert id="insertBehaviorLog" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
         INSERT INTO behavior_logs (
-            display_name,
             event_type,
             event_time,
-            face_image_url,
-            body_image_url,
+            snapshot_url,
+            video_url,
             location_id,
             person_id,
             track_key,
             session_id,
-            person_kind,
-            source,
+            behavior_analysis,
             created_at
         ) VALUES (
-            #{displayName},
             #{eventType},
             #{eventTime},
-            #{faceImageUrl},
-            #{bodyImageUrl},
+            #{snapshotUrl},
+            #{videoUrl},
             #{locationId},
             #{personId},
             #{trackKey},
             #{sessionId},
-            #{personKind},
-            #{source},
+            #{behaviorAnalysis},
             NOW()
         )
     </insert>
 
-    <update id="updateBehaviorLogImages">
+    <update id="updateBehaviorLogSnapshot">
         UPDATE behavior_logs
-        SET face_image_url = #{faceImageUrl},
-            body_image_url = #{bodyImageUrl}
+        SET snapshot_url = #{snapshotUrl}
         WHERE id = #{id}
     </update>
 
     <update id="updateBehaviorLogPresence">
         UPDATE behavior_logs
-        SET display_name = #{displayName},
-            person_id = #{personId},
+        SET person_id = #{personId},
             session_id = #{sessionId},
-            person_kind = #{personKind},
             face_match_score = #{faceMatchScore},
             body_match_score = #{bodyMatchScore},
             quality_flag = COALESCE(#{qualityFlag}, quality_flag)
         WHERE id = #{id}
     </update>
+
+    <update id="updateBehaviorAnalysis">
+        UPDATE behavior_logs
+        SET behavior_analysis = #{behaviorAnalysis}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM behavior_logs WHERE id = #{id}
+    </delete>
 
 </mapper>

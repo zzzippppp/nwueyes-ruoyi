@@ -16,19 +16,18 @@ public interface BehaviorLogMapper
 
     int countByUniqueKey(@Param("trackKey") String trackKey,
             @Param("eventType") String eventType,
-            @Param("eventTime") java.util.Date eventTime,
-            @Param("source") String source);
+            @Param("eventTime") java.util.Date eventTime);
 
-    int updateBehaviorLogImages(@Param("id") Long id,
-            @Param("faceImageUrl") String faceImageUrl,
-            @Param("bodyImageUrl") String bodyImageUrl);
+    int updateBehaviorLogSnapshot(@Param("id") Long id, @Param("snapshotUrl") String snapshotUrl);
 
     int updateBehaviorLogPresence(@Param("id") Long id,
-            @Param("displayName") String displayName,
             @Param("personId") Long personId,
             @Param("sessionId") Long sessionId,
-            @Param("personKind") String personKind,
             @Param("faceMatchScore") Float faceMatchScore,
             @Param("bodyMatchScore") Float bodyMatchScore,
             @Param("qualityFlag") String qualityFlag);
+
+    int updateBehaviorAnalysis(@Param("id") Long id, @Param("behaviorAnalysis") String behaviorAnalysis);
+
+    int deleteById(@Param("id") Long id);
 }

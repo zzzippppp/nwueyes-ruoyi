@@ -32,9 +32,10 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
 {
     private static final Logger log = LoggerFactory.getLogger(PresenceTrackServiceImpl.class);
 
-    private static final String PERSON_KIND_KNOWN = "known";
-    private static final String PERSON_KIND_STRANGER = "stranger";
-    private static final String PERSON_KIND_UNKNOWN = "unknown";
+    private static final String PERSON_TYPE_STUDENT = "student";
+    private static final String PERSON_TYPE_STAFF = "staff";
+    private static final String PERSON_TYPE_STRANGER = "stranger";
+    private static final String PERSON_TYPE_UNKNOWN = "unknown";
     private static final String QUALITY_NORMAL = "normal";
     private static final String QUALITY_LOW = "low";
     private static final String QUALITY_MISSING = "missing";
@@ -57,6 +58,9 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
     @Autowired
     private PresenceStoragePaths storagePaths;
 
+    @Autowired
+    private com.ruoyi.system.service.IAttendanceDailyService attendanceDailyService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PresenceTrackProcessResultVo processEnter(Long locationId, String trackKey, Date eventTime,
@@ -76,7 +80,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
 
         Long personId = null;
         String displayName = defaultDisplayName(trackKey);
-        String personKind = PERSON_KIND_UNKNOWN;
+        String personKind = PERSON_TYPE_UNKNOWN;
         Float faceMatchScore = null;
         boolean strangerRegistered = false;
 
@@ -90,7 +94,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
                 {
                     personId = match.getPersonId();
                     displayName = StringUtils.nvl(match.getDisplayName(), displayName);
-                    personKind = StringUtils.nvl(match.getPersonKind(), PERSON_KIND_KNOWN);
+                    personKind = StringUtils.nvl(match.getPersonKind(), PERSON_TYPE_STUDENT);
                 }
             }
         }
@@ -105,24 +109,26 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             }
         }
 
-        // 进门身份/合并 session 只认人脸；无脸时不建 stranger（体态仅作证据图）
+        // 进门未匹配在案人员时一律建 stranger 档案
         if (personId == null)
         {
-            if (Boolean.TRUE.equals(faceEmbed.getOk()) && faceEmbed.getEmbedding() != null)
-            {
-                personId = registerStranger(trackKey, faceImageUrl, bodyImageUrl, faceEmbed, bodyEmbed);
-                personKind = PERSON_KIND_STRANGER;
-                strangerRegistered = true;
-            }
+            personId = registerStranger(trackKey, faceImageUrl, bodyImageUrl, faceEmbed, bodyEmbed);
+            personKind = PERSON_TYPE_STRANGER;
+            strangerRegistered = true;
         }
 
         String faceLiteral = toLiteral(faceEmbed);
         String bodyLiteral = toLiteral(bodyEmbed);
         Long sessionId = presenceIngestMapper.insertOpenSession(locationId, personId, trackKey, eventTime,
-                faceImageUrl, bodyImageUrl, faceMatchScore, faceLiteral, bodyLiteral);
+                faceMatchScore, faceLiteral, bodyLiteral);
 
-        return buildResult(sessionId, "open", personId, displayName, personKind, faceMatchScore, null,
+        PresenceTrackProcessResultVo result = buildResult(sessionId, "open", personId, displayName, personKind, faceMatchScore, null,
                 normalizedQuality, strangerRegistered);
+        if (!result.isSkippedDuplicateEnter())
+        {
+            attendanceDailyService.onEnter(personId, locationId, sessionId, eventTime);
+        }
+        return result;
     }
 
     @Override
@@ -145,8 +151,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
 
         PresenceOpenSessionVo open = matched.session;
         Float bodyMatchScore = matched.score;
-        int updated = presenceIngestMapper.closeSession(open.getSessionId(), eventTime, open.getPersonId(),
-                faceImageUrl, bodyImageUrl, bodyMatchScore);
+        int updated = presenceIngestMapper.closeSession(open.getSessionId(), eventTime, open.getPersonId(), bodyMatchScore);
         if (updated <= 0)
         {
             log.warn("exit session close failed track={} matchedSession={} sessionId={}", trackKey,
@@ -160,10 +165,13 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
                     open.getTrackKey(), trackKey, bodyMatchScore);
         }
 
-        String personKind = open.getPersonId() == null ? PERSON_KIND_UNKNOWN : PERSON_KIND_STRANGER;
+        String personKind = open.getPersonId() == null ? PERSON_TYPE_UNKNOWN : PERSON_TYPE_STRANGER;
         String displayName = defaultDisplayName(open.getTrackKey());
-        return buildResult(open.getSessionId(), "closed", open.getPersonId(), displayName,
+        PresenceTrackProcessResultVo result = buildResult(open.getSessionId(), "closed", open.getPersonId(), displayName,
                 personKind, null, bodyMatchScore, normalizedQuality, false);
+        attendanceDailyService.onExit(open.getPersonId(), open.getSessionId(), eventTime,
+                computeDwellSeconds(open.getArrivalAt(), eventTime));
+        return result;
     }
 
     private static final class ExitBodyMatch
@@ -225,7 +233,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
     private PresenceTrackProcessResultVo buildSkippedOrphanExitResult(String trackKey, String qualityFlag)
     {
         PresenceTrackProcessResultVo vo = buildResult(null, "orphan", null, defaultDisplayName(trackKey),
-                PERSON_KIND_UNKNOWN, null, null, qualityFlag, false);
+                PERSON_TYPE_UNKNOWN, null, null, qualityFlag, false);
         vo.setSkippedOrphanExit(true);
         return vo;
     }
@@ -234,7 +242,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             EmbeddingVectorVo faceEmbed, EmbeddingVectorVo bodyEmbed)
     {
         String displayName = defaultDisplayName(trackKey);
-        dataBoardMapper.insertPerson(displayName, PERSON_KIND_STRANGER, "", "");
+        dataBoardMapper.insertPerson(displayName, PERSON_TYPE_STRANGER, null, "", "");
         Long personId = dataBoardMapper.selectLastPersonId();
         if (personId == null)
         {
@@ -258,6 +266,16 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             {
                 profileMatchMapper.insertBodyProfile(personId, VectorLiteralUtil.toLiteral(bodyEmbed.getEmbedding()),
                         archiveBodyUrl);
+            }
+        }
+        else if (!StringUtils.isEmpty(bodyImageUrl))
+        {
+            String archiveBodyUrl = promoteToArchiveBody(bodyImageUrl);
+            if (!StringUtils.isEmpty(archiveBodyUrl))
+            {
+                log.warn("stranger body embed failed, archive image only personId={} error={}",
+                        personId, bodyEmbed != null ? bodyEmbed.getError() : "null");
+                profileMatchMapper.insertBodyProfileImageOnly(personId, archiveBodyUrl);
             }
         }
 
@@ -393,6 +411,16 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         return QUALITY_NORMAL;
     }
 
+    private int computeDwellSeconds(java.util.Date arrivalAt, java.util.Date departureAt)
+    {
+        if (arrivalAt == null || departureAt == null)
+        {
+            return 0;
+        }
+        long seconds = (departureAt.getTime() - arrivalAt.getTime()) / 1000L;
+        return (int) Math.max(0L, seconds);
+    }
+
     private String extensionOf(Path file)
     {
         String name = file.getFileName().toString();
@@ -410,7 +438,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         Long resolvedPersonId = personId != null ? personId : open.getPersonId();
         String resolvedName = StringUtils.isEmpty(displayName) ? defaultDisplayName(open.getTrackKey()) : displayName;
         String resolvedKind = StringUtils.isEmpty(personKind)
-                ? (resolvedPersonId == null ? PERSON_KIND_UNKNOWN : PERSON_KIND_STRANGER)
+                ? (resolvedPersonId == null ? PERSON_TYPE_UNKNOWN : PERSON_TYPE_STRANGER)
                 : personKind;
         PresenceTrackProcessResultVo vo = buildResult(open.getSessionId(), "open", resolvedPersonId, resolvedName,
                 resolvedKind, faceMatchScore, null, qualityFlag, false);

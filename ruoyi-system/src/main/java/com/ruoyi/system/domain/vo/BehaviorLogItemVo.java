@@ -17,9 +17,13 @@ public class BehaviorLogItemVo
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date eventTime;
 
-    private String faceImageUrl;
+    private String snapshotUrl;
 
-    private String bodyImageUrl;
+    private String videoUrl;
+
+    private String personType;
+
+    private String employeeNo;
 
     private Long locationId;
 
@@ -31,15 +35,14 @@ public class BehaviorLogItemVo
 
     private Long sessionId;
 
-    private String personKind;
-
-    private String source;
-
     private Float faceMatchScore;
 
     private Float bodyMatchScore;
 
     private String qualityFlag;
+
+    /** 行为分析（自然语言） */
+    private String behaviorAnalysis;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date createdAt;
@@ -84,24 +87,66 @@ public class BehaviorLogItemVo
         this.eventTime = eventTime;
     }
 
+    public String getSnapshotUrl()
+    {
+        return snapshotUrl;
+    }
+
+    public void setSnapshotUrl(String snapshotUrl)
+    {
+        this.snapshotUrl = snapshotUrl;
+    }
+
+    public String getVideoUrl()
+    {
+        return videoUrl;
+    }
+
+    public void setVideoUrl(String videoUrl)
+    {
+        this.videoUrl = videoUrl;
+    }
+
+    public String getPersonType()
+    {
+        return personType;
+    }
+
+    public void setPersonType(String personType)
+    {
+        this.personType = personType;
+    }
+
+    public String getEmployeeNo()
+    {
+        return employeeNo;
+    }
+
+    public void setEmployeeNo(String employeeNo)
+    {
+        this.employeeNo = employeeNo;
+    }
+
+    /** @deprecated 兼容旧前端，等同 snapshotUrl */
     public String getFaceImageUrl()
     {
-        return faceImageUrl;
+        return snapshotUrl;
     }
 
     public void setFaceImageUrl(String faceImageUrl)
     {
-        this.faceImageUrl = faceImageUrl;
+        this.snapshotUrl = faceImageUrl;
     }
 
+    /** @deprecated 不再使用 */
     public String getBodyImageUrl()
     {
-        return bodyImageUrl;
+        return "";
     }
 
     public void setBodyImageUrl(String bodyImageUrl)
     {
-        this.bodyImageUrl = bodyImageUrl;
+        // no-op
     }
 
     public Long getLocationId()
@@ -154,24 +199,26 @@ public class BehaviorLogItemVo
         this.sessionId = sessionId;
     }
 
+    /** @deprecated 使用 personType */
     public String getPersonKind()
     {
-        return personKind;
+        return personType;
     }
 
     public void setPersonKind(String personKind)
     {
-        this.personKind = personKind;
+        this.personType = personKind;
     }
 
+    /** @deprecated 已移除 source 字段 */
     public String getSource()
     {
-        return source;
+        return "live";
     }
 
     public void setSource(String source)
     {
-        this.source = source;
+        // no-op
     }
 
     public Float getFaceMatchScore()
@@ -202,6 +249,16 @@ public class BehaviorLogItemVo
     public void setQualityFlag(String qualityFlag)
     {
         this.qualityFlag = qualityFlag;
+    }
+
+    public String getBehaviorAnalysis()
+    {
+        return behaviorAnalysis;
+    }
+
+    public void setBehaviorAnalysis(String behaviorAnalysis)
+    {
+        this.behaviorAnalysis = behaviorAnalysis;
     }
 
     public Date getCreatedAt()

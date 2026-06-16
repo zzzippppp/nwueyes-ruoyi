@@ -87,13 +87,14 @@ def finalize_live_capture(
 ):
     face_img, body_img = capture.finalize_images()
     quality = capture.quality_flag()
-    face_url, body_url = save_live_event_snapshot(
+    face_url, body_url, snapshot_url = save_live_event_snapshot(
         args.storage_root,
         args.task_id,
         capture.track_key,
         capture.event_type,
         face_img,
         body_img,
+        capture.best_frame_img,
     )
     payload = {
         "eventType": capture.event_type,
@@ -102,6 +103,7 @@ def finalize_live_capture(
         "eventTime": iso_now(),
         "faceImageUrl": face_url,
         "bodyImageUrl": body_url,
+        "snapshotUrl": snapshot_url,
         "bestMatchScore": conf,
         "async": True,
         "qualityFlag": quality,
@@ -268,6 +270,38 @@ def is_ezviz_codec_error_frame(frame) -> bool:
     return mean > 215 and std < 75 and h <= 400
 
 
+def collect_probe_frame(cap: cv2.VideoCapture, deadline: float, stream_protocol: str):
+    """
+    萤石 FLV/HLS 首帧常为低清预览（如 768x432），需在 warmup 内取最大分辨率帧。
+    RTSP 仍用首帧即可。
+    """
+    best = None
+    best_area = 0
+    started = time.time()
+    while time.time() < deadline:
+        ret, frame = cap.read()
+        if not ret or frame is None or frame.size == 0:
+            time.sleep(0.15)
+            continue
+        if is_ezviz_codec_error_frame(frame):
+            time.sleep(0.15)
+            continue
+        h, w = frame.shape[:2]
+        area = w * h
+        if area > best_area:
+            best = frame
+            best_area = area
+        if stream_protocol not in ("flv", "hls"):
+            return best
+        elapsed = time.time() - started
+        if elapsed >= 5.0:
+            return best
+        if best_area >= 1920 * 1080 and elapsed >= 1.0:
+            return best
+        time.sleep(0.05)
+    return best
+
+
 def save_probe_frame(
     frame,
     storage_root: str,
@@ -339,7 +373,11 @@ def main():
     args = parser.parse_args()
 
     stream_host = urlparse(args.stream_url).netloc or args.stream_url[:48]
-    print(f"[live] opening stream protocol={args.stream_protocol} host={stream_host}", flush=True)
+    stream_tag = args.stream_url.split("/")[-1].split("?")[0]
+    print(
+        f"[live] opening stream protocol={args.stream_protocol} host={stream_host} tag={stream_tag}",
+        flush=True,
+    )
     started_at = time.time()
 
     model_holder: dict = {"model": None, "error": None}
@@ -378,12 +416,25 @@ def main():
             time.sleep(0.3)
             continue
 
-        ret, frame = video_cap.read()
-        if ret and frame is not None and frame.size > 0:
-            probe = frame
-            if url_index > 0:
-                print(f"[live] rtsp fallback ok index={url_index} url={stream_urls[url_index][:80]}", flush=True)
-            break
+        if args.stream_protocol in ("flv", "hls"):
+            remaining = open_deadline - time.time()
+            if remaining > 0:
+                probe = collect_probe_frame(
+                    video_cap,
+                    time.time() + min(8.0, remaining),
+                    args.stream_protocol,
+                )
+            if probe is not None:
+                ph, pw = probe.shape[:2]
+                print(f"[live] probe warmup selected {pw}x{ph}", flush=True)
+                break
+        else:
+            ret, frame = video_cap.read()
+            if ret and frame is not None and frame.size > 0 and not is_ezviz_codec_error_frame(frame):
+                probe = frame
+                if url_index > 0:
+                    print(f"[live] rtsp fallback ok index={url_index} url={stream_urls[url_index][:80]}", flush=True)
+                break
 
         video_cap.release()
         url_index += 1

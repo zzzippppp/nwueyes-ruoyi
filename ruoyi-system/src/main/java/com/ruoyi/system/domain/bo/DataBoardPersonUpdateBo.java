@@ -7,7 +7,13 @@ public class DataBoardPersonUpdateBo
 {
     private String displayName;
 
+    /** student / staff / stranger */
+    private String personType;
+
+    /** 兼容旧字段 */
     private String personKind;
+
+    private String employeeNo;
 
     private String tagsText;
 
@@ -23,14 +29,34 @@ public class DataBoardPersonUpdateBo
         this.displayName = displayName;
     }
 
+    public String getPersonType()
+    {
+        return personType != null ? personType : personKind;
+    }
+
+    public void setPersonType(String personType)
+    {
+        this.personType = personType;
+    }
+
     public String getPersonKind()
     {
-        return personKind;
+        return getPersonType();
     }
 
     public void setPersonKind(String personKind)
     {
         this.personKind = personKind;
+    }
+
+    public String getEmployeeNo()
+    {
+        return employeeNo;
+    }
+
+    public void setEmployeeNo(String employeeNo)
+    {
+        this.employeeNo = employeeNo;
     }
 
     public String getTagsText()

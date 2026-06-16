@@ -31,7 +31,20 @@ public interface DataBoardMapper
             @Param("locationId") Long locationId, @Param("limit") int limit);
 
     int updatePerson(@Param("personId") Long personId, @Param("displayName") String displayName,
-            @Param("personKind") String personKind, @Param("tagsText") String tagsText, @Param("note") String note);
+            @Param("personType") String personType, @Param("employeeNo") String employeeNo,
+            @Param("tagsText") String tagsText, @Param("note") String note);
+
+    Long selectPersonByEmployeeNo(@Param("employeeNo") String employeeNo);
+
+    int reassignSessionsPerson(@Param("fromPersonId") Long fromPersonId, @Param("toPersonId") Long toPersonId);
+
+    int reassignBehaviorLogsPerson(@Param("fromPersonId") Long fromPersonId, @Param("toPersonId") Long toPersonId);
+
+    int reassignDailyPerson(@Param("fromPersonId") Long fromPersonId, @Param("toPersonId") Long toPersonId);
+
+    int reassignFaceProfilesPerson(@Param("fromPersonId") Long fromPersonId, @Param("toPersonId") Long toPersonId);
+
+    int reassignBodyProfilesPerson(@Param("fromPersonId") Long fromPersonId, @Param("toPersonId") Long toPersonId);
 
     int deletePerson(@Param("personId") Long personId);
 
@@ -39,16 +52,16 @@ public interface DataBoardMapper
 
     int deleteSession(@Param("sessionId") Long sessionId);
 
-    int deleteStrangerByTrackKey(@Param("trackKey") String trackKey);
+    int deleteBehaviorLogsByTrackKey(@Param("trackKey") String trackKey);
 
-    int clearStrangerPerson(@Param("trackKey") String trackKey);
+    int deleteStrangerByTrackKey(@Param("trackKey") String trackKey);
 
     int bindTrackToPerson(@Param("trackKey") String trackKey, @Param("personId") Long personId);
 
     Long selectPersonIdByTrackKey(@Param("trackKey") String trackKey);
 
-    int insertPerson(@Param("displayName") String displayName, @Param("personKind") String personKind,
-            @Param("tagsText") String tagsText, @Param("note") String note);
+    int insertPerson(@Param("displayName") String displayName, @Param("personType") String personType,
+            @Param("employeeNo") String employeeNo, @Param("tagsText") String tagsText, @Param("note") String note);
 
     Long selectLastPersonId();
 

@@ -41,11 +41,29 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     @Autowired
     private IEzvizScreenService ezvizScreenService;
 
+    @Autowired
+    private com.ruoyi.system.service.ILocationService locationService;
+
     @Override
     public synchronized PresenceLiveTaskVo startLive(PresenceLiveStartBo bo)
     {
         validateStartBo(bo);
         stopActiveIfRunning();
+
+        int channelNo = bo.getChannelNo() == null || bo.getChannelNo() < 1 ? 1 : bo.getChannelNo();
+        Long locationId = locationService.resolveOrCreateLocation(bo.getDeviceSerial(), channelNo,
+                "监控点位-" + bo.getDeviceSerial());
+        bo.setLocationId(locationId);
+
+        com.ruoyi.system.domain.vo.LocationConfigVo locationConfig = locationService.getLocationConfig(locationId);
+        if (bo.getLineY() == null && locationConfig != null && locationConfig.getLineY() != null)
+        {
+            bo.setLineY(locationConfig.getLineY());
+        }
+        if (StringUtils.isEmpty(bo.getRoi()) && locationConfig != null && !StringUtils.isEmpty(locationConfig.getRoi()))
+        {
+            bo.setRoi(locationConfig.getRoi());
+        }
 
         String streamMode = normalizeStreamMode(bo.getStreamMode());
         boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equals(streamMode);
