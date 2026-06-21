@@ -7,7 +7,7 @@ public class PresenceEventIngestBo
 {
     private String eventType;
 
-    private Long locationId;
+    private Long cameraId;
 
     private String trackKey;
 
@@ -43,14 +43,14 @@ public class PresenceEventIngestBo
         this.eventType = eventType;
     }
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
-    public void setLocationId(Long locationId)
+    public void setCameraId(Long cameraId)
     {
-        this.locationId = locationId;
+        this.cameraId = cameraId;
     }
 
     public String getTrackKey()

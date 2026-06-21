@@ -106,7 +106,25 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         ReplayTaskState state = taskMap.get(taskId);
 
-        if (state == null)
+        if (state != null)
+
+        {
+
+            return state.toVo();
+
+        }
+
+        return loadTaskFromDisk(taskId);
+
+    }
+
+
+
+    private PresenceReplayTaskVo loadTaskFromDisk(String taskId)
+
+    {
+
+        if (StringUtils.isEmpty(taskId))
 
         {
 
@@ -114,7 +132,43 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         }
 
-        return state.toVo();
+        File resultFile = analyzeResultFile(taskId);
+
+        if (!resultFile.exists())
+
+        {
+
+            return null;
+
+        }
+
+        PresenceReplayTaskVo vo = new PresenceReplayTaskVo();
+
+        vo.setTaskId(taskId);
+
+        vo.setStatus("success");
+
+        vo.setMessage("已从磁盘加载分析结果");
+
+        try
+
+        {
+
+            vo.setResultJson(Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
+
+        }
+
+        catch (Exception ex)
+
+        {
+
+            vo.setStatus("failed");
+
+            vo.setMessage("读取分析结果失败: " + ex.getMessage());
+
+        }
+
+        return vo;
 
     }
 
@@ -373,6 +427,17 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         cmd.add(String.valueOf(ingestProperties.getSnapshotWindowSec() == null ? 5.0 : ingestProperties.getSnapshotWindowSec()));
 
+        if (live != null)
+        {
+            cmd.add("--enter-face-hunt-max-sec");
+            cmd.add(String.valueOf(live.getEnterFaceHuntMaxSec()));
+            cmd.add("--enter-face-grace-sec");
+            cmd.add(String.valueOf(live.getEnterFaceGraceSec()));
+        }
+        Double minFaceDet = ingestProperties.getFaceMinDetScore();
+        cmd.add("--min-face-det-score");
+        cmd.add(String.valueOf(minFaceDet == null ? 0.45 : minFaceDet));
+
         return cmd;
 
     }
@@ -405,9 +470,9 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         cmd.add(ingestProperties.getApiKey());
 
-        cmd.add("--location-id");
+        cmd.add("--camera-id");
 
-        cmd.add(String.valueOf(bo.getLocationId() == null ? ingestProperties.getDefaultLocationId() : bo.getLocationId()));
+        cmd.add(String.valueOf(bo.getCameraId() == null ? ingestProperties.getDefaultCameraId() : bo.getCameraId()));
 
         cmd.add("--line-y");
 

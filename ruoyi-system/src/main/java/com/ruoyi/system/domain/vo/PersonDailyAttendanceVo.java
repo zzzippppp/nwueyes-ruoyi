@@ -17,9 +17,9 @@ public class PersonDailyAttendanceVo
 
     private String personType;
 
-    private Long locationId;
+    private Long cameraId;
 
-    private String locationName;
+    private String deviceName;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date firstEnterAt;
@@ -97,24 +97,24 @@ public class PersonDailyAttendanceVo
         this.personType = personType;
     }
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
-    public void setLocationId(Long locationId)
+    public void setCameraId(Long cameraId)
     {
-        this.locationId = locationId;
+        this.cameraId = cameraId;
     }
 
-    public String getLocationName()
+    public String getDeviceName()
     {
-        return locationName;
+        return deviceName;
     }
 
-    public void setLocationName(String locationName)
+    public void setDeviceName(String deviceName)
     {
-        this.locationName = locationName;
+        this.deviceName = deviceName;
     }
 
     public Date getFirstEnterAt()

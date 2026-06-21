@@ -160,7 +160,7 @@ presence:
   ingest:
     enabled: ${PRESENCE_INGEST_ENABLED:false}
     apiKey: ${PRESENCE_INGEST_API_KEY:}
-    defaultLocationId: ${PRESENCE_INGEST_DEFAULT_LOCATION_ID:1}
+    defaultCameraId: ${PRESENCE_INGEST_DEFAULT_LOCATION_ID:1}
     workspaceRoot: ${PRESENCE_REPLAY_WORKSPACE_ROOT:E:/nwueyes/ruoyi}
     replayPythonCommand: ${PRESENCE_REPLAY_PYTHON:python}
     replayScriptPath: ${PRESENCE_REPLAY_SCRIPT:scripts/video_replay_worker_yolo.py}
@@ -179,9 +179,37 @@ presence:
     faceMatchThreshold: ${PRESENCE_FACE_MATCH_THRESHOLD:0.45}
     bodyMatchThreshold: ${PRESENCE_BODY_MATCH_THRESHOLD:0.50}
     liveScriptPath: ${PRESENCE_LIVE_SCRIPT:scripts/live_stream_worker_yolo.py}
+    clip:
+      enabled: ${PRESENCE_CLIP_ENABLED:true}
+      preRollSec: ${PRESENCE_CLIP_PRE_ROLL_SEC:3}
+      postRollSec: ${PRESENCE_CLIP_POST_ROLL_SEC:3}
+      trackLostSec: ${PRESENCE_CLIP_TRACK_LOST_SEC:2}
+      sceneMergeGapSec: ${PRESENCE_CLIP_SCENE_MERGE_GAP_SEC:5}
+      localRecordingEnabled: ${PRESENCE_CLIP_LOCAL_RECORDING_ENABLED:false}
+      ezvizRecordingFormat: ${PRESENCE_CLIP_EZVIZ_RECORDING_FORMAT:MP4}
+      ezvizAddressExpireSeconds: ${PRESENCE_CLIP_EZVIZ_ADDRESS_EXPIRE_SECONDS:1800}
+      ezvizTranscodeBusType: ${PRESENCE_CLIP_EZVIZ_TRANSCODE_BUS_TYPE:7}
+      ezvizTranscodePollIntervalMs: ${PRESENCE_CLIP_EZVIZ_TRANSCODE_POLL_INTERVAL_MS:3000}
+      ezvizTranscodePollMaxAttempts: ${PRESENCE_CLIP_EZVIZ_TRANSCODE_POLL_MAX_ATTEMPTS:20}
+      ezvizSpaceId: ${PRESENCE_CLIP_EZVIZ_SPACE_ID:}
+      ezvizResultSpaceId: ${PRESENCE_CLIP_EZVIZ_RESULT_SPACE_ID:}
+    analysis:
+      enabled: ${PRESENCE_AI_ANALYSIS_ENABLED:false}
+      autoRun: ${PRESENCE_AI_ANALYSIS_AUTO_RUN:false}
+      timeoutSec: ${PRESENCE_AI_ANALYSIS_TIMEOUT_SEC:60}
+      prompt: ${PRESENCE_AI_ANALYSIS_PROMPT:请分析这段监控视频中的人物外观、行为、多人互动和潜在风险，返回JSON字段summary、appearance、behavior、riskLevel。}
+      oss:
+        enabled: ${PRESENCE_AI_OSS_ENABLED:false}
+        endpoint: ${PRESENCE_AI_OSS_ENDPOINT:}
+        bucket: ${PRESENCE_AI_OSS_BUCKET:}
+        accessKeyId: ${PRESENCE_AI_OSS_ACCESS_KEY_ID:}
+        accessKeySecret: ${PRESENCE_AI_OSS_ACCESS_KEY_SECRET:}
+        publicBaseUrl: ${PRESENCE_AI_OSS_PUBLIC_BASE_URL:}
+        objectPrefix: ${PRESENCE_AI_OSS_OBJECT_PREFIX:safetyguard/clips}
+      models: []
     live:
       targetDetectFps: ${PRESENCE_LIVE_TARGET_FPS:10}
       yoloImgsz: ${PRESENCE_LIVE_YOLO_IMGSZ:960}
       yoloConf: ${PRESENCE_LIVE_YOLO_CONF:0.20}
       enterFaceHuntMaxSec: ${PRESENCE_ENTER_FACE_HUNT_MAX_SEC:10}
-      enterFaceGraceSec: ${PRESENCE_ENTER_FACE_GRACE_SEC:1.5}
+      enterFaceGraceSec: ${PRESENCE_ENTER_FACE_GRACE_SEC:4}

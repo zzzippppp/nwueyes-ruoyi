@@ -15,8 +15,6 @@ public class DataBoardPersonUpdateBo
 
     private String employeeNo;
 
-    private String tagsText;
-
     private String note;
 
     public String getDisplayName()
@@ -57,16 +55,6 @@ public class DataBoardPersonUpdateBo
     public void setEmployeeNo(String employeeNo)
     {
         this.employeeNo = employeeNo;
-    }
-
-    public String getTagsText()
-    {
-        return tagsText;
-    }
-
-    public void setTagsText(String tagsText)
-    {
-        this.tagsText = tagsText;
     }
 
     public String getNote()

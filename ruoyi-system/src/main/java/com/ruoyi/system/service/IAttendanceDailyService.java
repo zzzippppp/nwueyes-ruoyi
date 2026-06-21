@@ -8,12 +8,13 @@ import com.ruoyi.system.domain.vo.PersonDailyAttendanceVo;
 
 public interface IAttendanceDailyService
 {
-    void onEnter(Long personId, Long locationId, Long sessionId, Date eventTime);
+    void onEnter(Long personId, Long cameraId, Long sessionId, Date eventTime);
 
     void onExit(Long personId, Long sessionId, Date eventTime, Integer dwellSeconds);
 
-    List<PersonDailyAttendanceVo> listDailyAttendance(LocalDate statDate, Long locationId, String personType,
-            String displayName, String employeeNo, String attendanceStatus, int limit);
+    List<PersonDailyAttendanceVo> listDailyAttendance(LocalDate statDate, LocalDate beginDate, LocalDate endDate,
+            Long cameraId, String personType, String displayName, String employeeNo, String attendanceStatus,
+            int limit);
 
     AttendanceDashboardVo getDashboard(LocalDate statDate);
 

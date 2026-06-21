@@ -18,7 +18,9 @@ import com.ruoyi.system.domain.vo.BodySessionMatchVo;
 import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
 import com.ruoyi.system.domain.vo.FaceMatchCandidateVo;
 import com.ruoyi.system.domain.vo.PresenceOpenSessionVo;
+import com.ruoyi.system.domain.vo.PresenceTrackMatchPreviewVo;
 import com.ruoyi.system.domain.vo.PresenceTrackProcessResultVo;
+import com.ruoyi.system.domain.vo.VirtualOpenSessionVo;
 import com.ruoyi.system.mapper.DataBoardMapper;
 import com.ruoyi.system.mapper.PresenceIngestMapper;
 import com.ruoyi.system.mapper.ProfileMatchMapper;
@@ -63,13 +65,13 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public PresenceTrackProcessResultVo processEnter(Long locationId, String trackKey, Date eventTime,
+    public PresenceTrackProcessResultVo processEnter(Long cameraId, String trackKey, Date eventTime,
             String faceImageUrl, String bodyImageUrl, String qualityFlag)
     {
-        validateLocation(locationId);
+        validateLocation(cameraId);
         String normalizedQuality = normalizeQuality(qualityFlag, faceImageUrl, bodyImageUrl);
 
-        PresenceOpenSessionVo existingByTrack = presenceIngestMapper.selectOpenByTrack(locationId, trackKey);
+        PresenceOpenSessionVo existingByTrack = presenceIngestMapper.selectOpenByTrack(cameraId, trackKey);
         if (existingByTrack != null)
         {
             return buildSkippedEnterResult(existingByTrack, null, null, null, null, normalizedQuality);
@@ -101,7 +103,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
 
         if (personId != null)
         {
-            PresenceOpenSessionVo openByPerson = presenceIngestMapper.selectLatestOpenByPerson(locationId, personId);
+            PresenceOpenSessionVo openByPerson = presenceIngestMapper.selectLatestOpenByPerson(cameraId, personId);
             if (openByPerson != null)
             {
                 return buildSkippedEnterResult(openByPerson, personId, displayName, personKind, faceMatchScore,
@@ -117,35 +119,34 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             strangerRegistered = true;
         }
 
-        String faceLiteral = toLiteral(faceEmbed);
         String bodyLiteral = toLiteral(bodyEmbed);
-        Long sessionId = presenceIngestMapper.insertOpenSession(locationId, personId, trackKey, eventTime,
-                faceMatchScore, faceLiteral, bodyLiteral);
+        Long sessionId = presenceIngestMapper.insertOpenSession(cameraId, personId, trackKey, eventTime,
+                faceMatchScore, bodyLiteral);
 
         PresenceTrackProcessResultVo result = buildResult(sessionId, "open", personId, displayName, personKind, faceMatchScore, null,
                 normalizedQuality, strangerRegistered);
         if (!result.isSkippedDuplicateEnter())
         {
-            attendanceDailyService.onEnter(personId, locationId, sessionId, eventTime);
+            attendanceDailyService.onEnter(personId, cameraId, sessionId, eventTime);
         }
         return result;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public PresenceTrackProcessResultVo processExit(Long locationId, String trackKey, Date eventTime,
+    public PresenceTrackProcessResultVo processExit(Long cameraId, String trackKey, Date eventTime,
             String faceImageUrl, String bodyImageUrl, String qualityFlag)
     {
-        validateLocation(locationId);
+        validateLocation(cameraId);
         String normalizedQuality = normalizeQuality(qualityFlag, faceImageUrl, bodyImageUrl);
 
         EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
-        ExitBodyMatch matched = resolveExitOpenSession(locationId, trackKey, bodyEmbed);
+        ExitBodyMatch matched = resolveExitOpenSession(cameraId, trackKey, bodyEmbed);
         if (matched == null || matched.session == null)
         {
             log.info(
-                    "orphan exit log-only track={} locationId={} (no open session with body similarity >= threshold)",
-                    trackKey, locationId);
+                    "orphan exit log-only track={} cameraId={} (no open session with body similarity >= threshold)",
+                    trackKey, cameraId);
             return buildSkippedOrphanExitResult(trackKey, normalizedQuality);
         }
 
@@ -174,6 +175,115 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         return result;
     }
 
+    @Override
+    public PresenceTrackMatchPreviewVo previewEnterMatch(String trackKey, String faceImageUrl, String bodyImageUrl)
+    {
+        PresenceTrackMatchPreviewVo vo = new PresenceTrackMatchPreviewVo();
+        vo.setDisplayName(defaultDisplayName(trackKey));
+        vo.setPersonKind(PERSON_TYPE_UNKNOWN);
+        vo.setMatched(false);
+
+        EmbeddingVectorVo faceEmbed = presenceEmbedService.embedImage("face", faceImageUrl);
+        EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
+        if (Boolean.TRUE.equals(bodyEmbed.getOk()) && bodyEmbed.getEmbedding() != null)
+        {
+            vo.setBodyEmbedding(bodyEmbed.getEmbedding());
+        }
+
+        if (!Boolean.TRUE.equals(faceEmbed.getOk()) || faceEmbed.getEmbedding() == null)
+        {
+            return vo;
+        }
+
+        FaceMatchCandidateVo match = searchFace(faceEmbed.getEmbedding());
+        if (match == null || match.getScore() == null)
+        {
+            return vo;
+        }
+        vo.setFaceMatchScore(match.getScore());
+        if (match.getScore() >= faceMatchThreshold())
+        {
+            vo.setMatched(true);
+            vo.setPersonId(match.getPersonId());
+            vo.setDisplayName(StringUtils.nvl(match.getDisplayName(), vo.getDisplayName()));
+            vo.setPersonKind(StringUtils.nvl(match.getPersonKind(), PERSON_TYPE_STUDENT));
+        }
+        return vo;
+    }
+
+    @Override
+    public PresenceTrackMatchPreviewVo previewExitMatch(String exitTrackKey, String bodyImageUrl,
+            List<VirtualOpenSessionVo> openSessions)
+    {
+        PresenceTrackMatchPreviewVo vo = new PresenceTrackMatchPreviewVo();
+        vo.setDisplayName(defaultDisplayName(exitTrackKey));
+        vo.setPersonKind(PERSON_TYPE_UNKNOWN);
+        vo.setMatched(false);
+
+        EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
+        if (!Boolean.TRUE.equals(bodyEmbed.getOk()) || bodyEmbed.getEmbedding() == null)
+        {
+            return vo;
+        }
+        if (openSessions == null || openSessions.isEmpty())
+        {
+            return vo;
+        }
+
+        float threshold = bodyMatchThreshold();
+        VirtualOpenSessionVo bestSession = null;
+        float bestScore = -1f;
+        for (VirtualOpenSessionVo session : openSessions)
+        {
+            if (session.getEnterBodyEmbedding() == null || session.getEnterBodyEmbedding().isEmpty())
+            {
+                continue;
+            }
+            float score = cosineSimilarity(bodyEmbed.getEmbedding(), session.getEnterBodyEmbedding());
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestSession = session;
+            }
+        }
+        if (bestSession == null || bestScore < threshold)
+        {
+            return vo;
+        }
+
+        vo.setMatched(true);
+        vo.setBodyMatchScore(bestScore);
+        vo.setPersonId(bestSession.getPersonId());
+        vo.setDisplayName(StringUtils.nvl(bestSession.getDisplayName(), defaultDisplayName(bestSession.getTrackKey())));
+        vo.setPersonKind(StringUtils.nvl(bestSession.getPersonKind(), PERSON_TYPE_UNKNOWN));
+        vo.setMatchedSessionTrackKey(bestSession.getTrackKey());
+        return vo;
+    }
+
+    private float cosineSimilarity(List<Double> a, List<Double> b)
+    {
+        if (a == null || b == null || a.isEmpty() || b.size() != a.size())
+        {
+            return -1f;
+        }
+        double dot = 0.0;
+        double normA = 0.0;
+        double normB = 0.0;
+        for (int i = 0; i < a.size(); i++)
+        {
+            double av = a.get(i);
+            double bv = b.get(i);
+            dot += av * bv;
+            normA += av * av;
+            normB += bv * bv;
+        }
+        if (normA <= 0.0 || normB <= 0.0)
+        {
+            return -1f;
+        }
+        return (float) (dot / (Math.sqrt(normA) * Math.sqrt(normB)));
+    }
+
     private static final class ExitBodyMatch
     {
         private PresenceOpenSessionVo session;
@@ -185,7 +295,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
      * 出门关 session：exit 体态向量 vs open session 的 enter_body_embedding，
      * 仅当相似度达到 bodyMatchThreshold 时才返回对应 session（非 trackKey 兜底）。
      */
-    private ExitBodyMatch resolveExitOpenSession(Long locationId, String trackKey, EmbeddingVectorVo bodyEmbed)
+    private ExitBodyMatch resolveExitOpenSession(Long cameraId, String trackKey, EmbeddingVectorVo bodyEmbed)
     {
         if (!Boolean.TRUE.equals(bodyEmbed.getOk()) || bodyEmbed.getEmbedding() == null)
         {
@@ -197,7 +307,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         {
             return null;
         }
-        BodySessionMatchVo match = searchOpenSessionByBody(locationId, literal);
+        BodySessionMatchVo match = searchOpenSessionByBody(cameraId, literal);
         if (match == null || match.getSessionId() == null)
         {
             return null;
@@ -218,9 +328,9 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         return result;
     }
 
-    private BodySessionMatchVo searchOpenSessionByBody(Long locationId, String embeddingLiteral)
+    private BodySessionMatchVo searchOpenSessionByBody(Long cameraId, String embeddingLiteral)
     {
-        return profileMatchMapper.searchTopOpenSessionByBody(locationId, embeddingLiteral,
+        return profileMatchMapper.searchTopOpenSessionByBody(cameraId, embeddingLiteral,
                 maxDistance(bodyMatchThreshold()));
     }
 
@@ -242,7 +352,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             EmbeddingVectorVo faceEmbed, EmbeddingVectorVo bodyEmbed)
     {
         String displayName = defaultDisplayName(trackKey);
-        dataBoardMapper.insertPerson(displayName, PERSON_TYPE_STRANGER, null, "", "");
+        dataBoardMapper.insertPerson(displayName, PERSON_TYPE_STRANGER, null, "");
         Long personId = dataBoardMapper.selectLastPersonId();
         if (personId == null)
         {
@@ -372,15 +482,15 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         return VectorLiteralUtil.toLiteral(embed.getEmbedding());
     }
 
-    private void validateLocation(Long locationId)
+    private void validateLocation(Long cameraId)
     {
-        if (locationId == null)
+        if (cameraId == null)
         {
-            throw new IllegalArgumentException("locationId 不能为空");
+            throw new IllegalArgumentException("cameraId 不能为空");
         }
-        if (presenceIngestMapper.existsLocation(locationId) <= 0)
+        if (presenceIngestMapper.existsLocation(cameraId) <= 0)
         {
-            throw new IllegalArgumentException("locationId 不存在: " + locationId);
+            throw new IllegalArgumentException("cameraId 不存在: " + cameraId);
         }
     }
 

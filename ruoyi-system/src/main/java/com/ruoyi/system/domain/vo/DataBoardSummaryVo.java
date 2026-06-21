@@ -8,10 +8,16 @@ import java.util.List;
  */
 public class DataBoardSummaryVo
 {
-    /** 统计日期 yyyy-MM-dd */
+    /** 统计日期 yyyy-MM-dd（兼容旧字段，等同 beginDate） */
     private String statDate;
 
-    private Long locationId;
+    /** 统计开始日期 yyyy-MM-dd */
+    private String beginDate;
+
+    /** 统计结束日期 yyyy-MM-dd */
+    private String endDate;
+
+    private Long cameraId;
 
     /** 当日开始会话数 */
     private Long sessionCount;
@@ -35,15 +41,26 @@ public class DataBoardSummaryVo
     /** 总停留 = closed + open */
     private Long totalDwellSeconds;
 
+    /** 在案总人数（student + staff，不含陌生人） */
+    private Long registeredPersonCount;
+
+    /** 今日出勤人数（去重，不含陌生人） */
+    private Long todayKnownAttendanceCount;
+
+    /** 出勤率 0–100 */
+    private Integer attendanceRatePercent;
+
     private List<DataBoardHourlyItemVo> hourlyTrend = new ArrayList<>();
 
-    private List<DataBoardLocationItemVo> byLocation = new ArrayList<>();
+    private List<DataBoardCameraItemVo> byLocation = new ArrayList<>();
 
     private List<DataBoardRecentSessionVo> recentSessions = new ArrayList<>();
 
     private List<DataBoardPersonItemVo> personItems = new ArrayList<>();
 
     private List<DataBoardStrangerItemVo> strangerItems = new ArrayList<>();
+
+    private List<DataBoardAttendanceItemVo> attendanceItems = new ArrayList<>();
 
     public String getStatDate()
     {
@@ -55,14 +72,34 @@ public class DataBoardSummaryVo
         this.statDate = statDate;
     }
 
-    public Long getLocationId()
+    public String getBeginDate()
     {
-        return locationId;
+        return beginDate;
     }
 
-    public void setLocationId(Long locationId)
+    public void setBeginDate(String beginDate)
     {
-        this.locationId = locationId;
+        this.beginDate = beginDate;
+    }
+
+    public String getEndDate()
+    {
+        return endDate;
+    }
+
+    public void setEndDate(String endDate)
+    {
+        this.endDate = endDate;
+    }
+
+    public Long getCameraId()
+    {
+        return cameraId;
+    }
+
+    public void setCameraId(Long cameraId)
+    {
+        this.cameraId = cameraId;
     }
 
     public Long getSessionCount()
@@ -145,6 +182,36 @@ public class DataBoardSummaryVo
         this.totalDwellSeconds = totalDwellSeconds;
     }
 
+    public Long getRegisteredPersonCount()
+    {
+        return registeredPersonCount;
+    }
+
+    public void setRegisteredPersonCount(Long registeredPersonCount)
+    {
+        this.registeredPersonCount = registeredPersonCount;
+    }
+
+    public Long getTodayKnownAttendanceCount()
+    {
+        return todayKnownAttendanceCount;
+    }
+
+    public void setTodayKnownAttendanceCount(Long todayKnownAttendanceCount)
+    {
+        this.todayKnownAttendanceCount = todayKnownAttendanceCount;
+    }
+
+    public Integer getAttendanceRatePercent()
+    {
+        return attendanceRatePercent;
+    }
+
+    public void setAttendanceRatePercent(Integer attendanceRatePercent)
+    {
+        this.attendanceRatePercent = attendanceRatePercent;
+    }
+
     public List<DataBoardHourlyItemVo> getHourlyTrend()
     {
         return hourlyTrend;
@@ -155,12 +222,12 @@ public class DataBoardSummaryVo
         this.hourlyTrend = hourlyTrend;
     }
 
-    public List<DataBoardLocationItemVo> getByLocation()
+    public List<DataBoardCameraItemVo> getByLocation()
     {
         return byLocation;
     }
 
-    public void setByLocation(List<DataBoardLocationItemVo> byLocation)
+    public void setByLocation(List<DataBoardCameraItemVo> byLocation)
     {
         this.byLocation = byLocation;
     }
@@ -193,5 +260,15 @@ public class DataBoardSummaryVo
     public void setStrangerItems(List<DataBoardStrangerItemVo> strangerItems)
     {
         this.strangerItems = strangerItems;
+    }
+
+    public List<DataBoardAttendanceItemVo> getAttendanceItems()
+    {
+        return attendanceItems;
+    }
+
+    public void setAttendanceItems(List<DataBoardAttendanceItemVo> attendanceItems)
+    {
+        this.attendanceItems = attendanceItems;
     }
 }

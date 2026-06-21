@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.VideoAnalysisMapper">
+
+    <select id="upsertVideoClip" resultType="java.lang.Long">
+        INSERT INTO presence_video_clips (
+            clip_key,
+            clip_type,
+            session_id,
+            scene_group_id,
+            camera_id,
+            track_key,
+            start_time,
+            end_time,
+            pre_roll_sec,
+            post_roll_sec,
+            video_url,
+            status,
+            provider_status,
+            provider_task_id,
+            provider_source_url,
+            provider_error_message,
+            public_video_url,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{clipKey},
+            #{clipType},
+            #{sessionId},
+            #{sceneGroupId},
+            #{cameraId},
+            #{trackKey},
+            #{startTime},
+            #{endTime},
+            #{preRollSec},
+            #{postRollSec},
+            #{videoUrl},
+            #{status},
+            #{providerStatus},
+            #{providerTaskId},
+            #{providerSourceUrl},
+            #{providerErrorMessage},
+            #{publicVideoUrl},
+            NOW(),
+            NOW()
+        )
+        ON CONFLICT (clip_key) DO UPDATE SET
+            session_id = COALESCE(EXCLUDED.session_id, presence_video_clips.session_id),
+            scene_group_id = COALESCE(EXCLUDED.scene_group_id, presence_video_clips.scene_group_id),
+            camera_id = EXCLUDED.camera_id,
+            track_key = COALESCE(EXCLUDED.track_key, presence_video_clips.track_key),
+            start_time = EXCLUDED.start_time,
+            end_time = EXCLUDED.end_time,
+            pre_roll_sec = EXCLUDED.pre_roll_sec,
+            post_roll_sec = EXCLUDED.post_roll_sec,
+            video_url = EXCLUDED.video_url,
+            status = EXCLUDED.status,
+            provider_status = EXCLUDED.provider_status,
+            provider_task_id = EXCLUDED.provider_task_id,
+            provider_source_url = EXCLUDED.provider_source_url,
+            provider_error_message = EXCLUDED.provider_error_message,
+            public_video_url = COALESCE(EXCLUDED.public_video_url, presence_video_clips.public_video_url),
+            updated_at = NOW()
+        RETURNING id
+    </select>
+
+    <update id="updateClipProviderResult">
+        UPDATE presence_video_clips
+        SET video_url = COALESCE(NULLIF(#{videoUrl}, ''), video_url),
+            status = #{status},
+            provider_status = #{providerStatus},
+            provider_task_id = #{providerTaskId},
+            provider_source_url = #{providerSourceUrl},
+            provider_error_message = #{providerErrorMessage},
+            public_video_url = COALESCE(NULLIF(#{publicVideoUrl}, ''), public_video_url),
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateClipPublicVideoUrl">
+        UPDATE presence_video_clips
+        SET public_video_url = #{publicVideoUrl},
+            status = COALESCE(#{status}, status),
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectClipById" resultType="com.ruoyi.system.domain.vo.PresenceVideoClipVo">
+        SELECT
+            id,
+            clip_key AS clipKey,
+            clip_type AS clipType,
+            session_id AS sessionId,
+            scene_group_id AS sceneGroupId,
+            camera_id AS cameraId,
+            track_key AS trackKey,
+            start_time AS startTime,
+            end_time AS endTime,
+            pre_roll_sec AS preRollSec,
+            post_roll_sec AS postRollSec,
+            video_url AS videoUrl,
+            status,
+            provider_status AS providerStatus,
+            provider_task_id AS providerTaskId,
+            provider_source_url AS providerSourceUrl,
+            provider_error_message AS providerErrorMessage,
+            public_video_url AS publicVideoUrl
+        FROM presence_video_clips
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectClipsByIds" resultType="com.ruoyi.system.domain.vo.PresenceVideoClipVo">
+        SELECT
+            id,
+            clip_key AS clipKey,
+            clip_type AS clipType,
+            session_id AS sessionId,
+            scene_group_id AS sceneGroupId,
+            camera_id AS cameraId,
+            track_key AS trackKey,
+            start_time AS startTime,
+            end_time AS endTime,
+            pre_roll_sec AS preRollSec,
+            post_roll_sec AS postRollSec,
+            video_url AS videoUrl,
+            status,
+            provider_status AS providerStatus,
+            provider_task_id AS providerTaskId,
+            provider_source_url AS providerSourceUrl,
+            provider_error_message AS providerErrorMessage,
+            public_video_url AS publicVideoUrl
+        FROM presence_video_clips
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="selectSceneClipByGroupId" resultType="com.ruoyi.system.domain.vo.PresenceVideoClipVo">
+        SELECT
+            id,
+            clip_key AS clipKey,
+            clip_type AS clipType,
+            session_id AS sessionId,
+            scene_group_id AS sceneGroupId,
+            camera_id AS cameraId,
+            track_key AS trackKey,
+            start_time AS startTime,
+            end_time AS endTime,
+            pre_roll_sec AS preRollSec,
+            post_roll_sec AS postRollSec,
+            video_url AS videoUrl,
+            status,
+            provider_status AS providerStatus,
+            provider_task_id AS providerTaskId,
+            provider_source_url AS providerSourceUrl,
+            provider_error_message AS providerErrorMessage,
+            public_video_url AS publicVideoUrl
+        FROM presence_video_clips
+        WHERE clip_type = 'scene_group'
+          AND scene_group_id = #{sceneGroupId}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectSceneClips" resultType="com.ruoyi.system.domain.vo.PresenceVideoClipVo">
+        SELECT DISTINCT ON (scene_group_id)
+            id,
+            clip_key AS clipKey,
+            clip_type AS clipType,
+            session_id AS sessionId,
+            scene_group_id AS sceneGroupId,
+            camera_id AS cameraId,
+            track_key AS trackKey,
+            start_time AS startTime,
+            end_time AS endTime,
+            pre_roll_sec AS preRollSec,
+            post_roll_sec AS postRollSec,
+            video_url AS videoUrl,
+            status,
+            provider_status AS providerStatus,
+            provider_task_id AS providerTaskId,
+            provider_source_url AS providerSourceUrl,
+            provider_error_message AS providerErrorMessage,
+            public_video_url AS publicVideoUrl
+        FROM presence_video_clips
+        WHERE clip_type = 'scene_group'
+          AND scene_group_id IN
+        <foreach collection="sceneGroupIds" item="sceneGroupId" open="(" separator="," close=")">
+            #{sceneGroupId}
+        </foreach>
+        ORDER BY scene_group_id, id DESC
+    </select>
+
+    <select id="selectAnalysisByTargets" resultType="com.ruoyi.system.domain.vo.AiAnalysisResultVo">
+        SELECT
+            id,
+            target_type AS targetType,
+            target_id AS targetId,
+            model_key AS modelKey,
+            model_name AS modelName,
+            status,
+            summary,
+            appearance,
+            behavior,
+            risk_level AS riskLevel,
+            raw_json AS rawJson,
+            error_message AS errorMessage,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM ai_analysis_results
+        WHERE target_type = #{targetType}
+          AND target_id IN
+        <foreach collection="targetIds" item="targetId" open="(" separator="," close=")">
+            #{targetId}
+        </foreach>
+        ORDER BY updated_at DESC, id DESC
+    </select>
+
+    <insert id="insertAnalysisPending">
+        INSERT INTO ai_analysis_results (
+            target_type,
+            target_id,
+            model_key,
+            model_name,
+            status,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{targetType},
+            #{targetId},
+            #{modelKey},
+            #{modelName},
+            'pending',
+            NOW(),
+            NOW()
+        )
+        ON CONFLICT (target_type, target_id, model_key) DO UPDATE SET
+            model_name = EXCLUDED.model_name,
+            status = 'pending',
+            error_message = NULL,
+            updated_at = NOW()
+    </insert>
+
+    <update id="updateAnalysisResult">
+        UPDATE ai_analysis_results
+        SET status = #{status},
+            summary = #{summary},
+            appearance = #{appearance},
+            behavior = #{behavior},
+            risk_level = #{riskLevel},
+            raw_json = #{rawJson},
+            error_message = #{errorMessage},
+            updated_at = NOW()
+        WHERE target_type = #{targetType}
+          AND target_id = #{targetId}
+          AND model_key = #{modelKey}
+    </update>
+
+    <update id="updateBehaviorLogClipByTrack">
+        UPDATE behavior_logs
+        SET scene_group_id = COALESCE(#{sceneGroupId}, scene_group_id),
+            clip_id = #{clipId},
+            analysis_status = #{analysisStatus}
+        WHERE source = 'live'
+          AND track_key = #{trackKey}
+          AND camera_id = #{cameraId}
+          AND event_time &gt;= (CAST(#{startTime,jdbcType=TIMESTAMP} AS timestamp) - INTERVAL '10 seconds')
+          AND event_time &lt;= (CAST(#{endTime,jdbcType=TIMESTAMP} AS timestamp) + INTERVAL '10 seconds')
+    </update>
+
+    <update id="updateBehaviorLogSceneByRange">
+        UPDATE behavior_logs
+        SET scene_group_id = #{sceneGroupId},
+            analysis_status = COALESCE(analysis_status, #{analysisStatus})
+        WHERE source = 'live'
+          AND camera_id = #{cameraId}
+          AND event_time &gt;= (CAST(#{startTime,jdbcType=TIMESTAMP} AS timestamp) - INTERVAL '10 seconds')
+          AND event_time &lt;= (CAST(#{endTime,jdbcType=TIMESTAMP} AS timestamp) + INTERVAL '10 seconds')
+    </update>
+
+</mapper>

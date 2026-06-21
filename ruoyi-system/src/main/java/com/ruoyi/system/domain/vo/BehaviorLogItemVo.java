@@ -1,10 +1,11 @@
 package com.ruoyi.system.domain.vo;
 
 import java.util.Date;
+import java.util.List;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 /**
- * 行为日志列表项
+ * 行为日志列表项（合并：人脸/体态小图 + 整帧 snapshot + clip/AI + 考勤字段）
  */
 public class BehaviorLogItemVo
 {
@@ -17,6 +18,10 @@ public class BehaviorLogItemVo
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date eventTime;
 
+    private String faceImageUrl;
+
+    private String bodyImageUrl;
+
     private String snapshotUrl;
 
     private String videoUrl;
@@ -25,9 +30,9 @@ public class BehaviorLogItemVo
 
     private String employeeNo;
 
-    private Long locationId;
+    private Long cameraId;
 
-    private String locationName;
+    private String deviceName;
 
     private Long personId;
 
@@ -41,8 +46,21 @@ public class BehaviorLogItemVo
 
     private String qualityFlag;
 
-    /** 行为分析（自然语言） */
     private String behaviorAnalysis;
+
+    private String sceneGroupId;
+
+    private Long clipId;
+
+    private String analysisStatus;
+
+    private PresenceVideoClipVo clip;
+
+    private PresenceVideoClipVo sceneClip;
+
+    private List<AiAnalysisResultVo> analysisResults;
+
+    private List<AiAnalysisResultVo> sceneAnalysisResults;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date createdAt;
@@ -87,6 +105,26 @@ public class BehaviorLogItemVo
         this.eventTime = eventTime;
     }
 
+    public String getFaceImageUrl()
+    {
+        return faceImageUrl;
+    }
+
+    public void setFaceImageUrl(String faceImageUrl)
+    {
+        this.faceImageUrl = faceImageUrl;
+    }
+
+    public String getBodyImageUrl()
+    {
+        return bodyImageUrl;
+    }
+
+    public void setBodyImageUrl(String bodyImageUrl)
+    {
+        this.bodyImageUrl = bodyImageUrl;
+    }
+
     public String getSnapshotUrl()
     {
         return snapshotUrl;
@@ -127,46 +165,46 @@ public class BehaviorLogItemVo
         this.employeeNo = employeeNo;
     }
 
-    /** @deprecated 兼容旧前端，等同 snapshotUrl */
-    public String getFaceImageUrl()
+    /** 兼容旧前端 */
+    public String getPersonKind()
     {
-        return snapshotUrl;
+        return personType;
     }
 
-    public void setFaceImageUrl(String faceImageUrl)
+    public void setPersonKind(String personKind)
     {
-        this.snapshotUrl = faceImageUrl;
+        this.personType = personKind;
     }
 
-    /** @deprecated 不再使用 */
-    public String getBodyImageUrl()
+    /** 兼容旧前端 */
+    public String getSource()
     {
-        return "";
+        return "live";
     }
 
-    public void setBodyImageUrl(String bodyImageUrl)
+    public void setSource(String source)
     {
         // no-op
     }
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
-    public void setLocationId(Long locationId)
+    public void setCameraId(Long cameraId)
     {
-        this.locationId = locationId;
+        this.cameraId = cameraId;
     }
 
-    public String getLocationName()
+    public String getDeviceName()
     {
-        return locationName;
+        return deviceName;
     }
 
-    public void setLocationName(String locationName)
+    public void setDeviceName(String deviceName)
     {
-        this.locationName = locationName;
+        this.deviceName = deviceName;
     }
 
     public Long getPersonId()
@@ -197,28 +235,6 @@ public class BehaviorLogItemVo
     public void setSessionId(Long sessionId)
     {
         this.sessionId = sessionId;
-    }
-
-    /** @deprecated 使用 personType */
-    public String getPersonKind()
-    {
-        return personType;
-    }
-
-    public void setPersonKind(String personKind)
-    {
-        this.personType = personKind;
-    }
-
-    /** @deprecated 已移除 source 字段 */
-    public String getSource()
-    {
-        return "live";
-    }
-
-    public void setSource(String source)
-    {
-        // no-op
     }
 
     public Float getFaceMatchScore()
@@ -259,6 +275,76 @@ public class BehaviorLogItemVo
     public void setBehaviorAnalysis(String behaviorAnalysis)
     {
         this.behaviorAnalysis = behaviorAnalysis;
+    }
+
+    public String getSceneGroupId()
+    {
+        return sceneGroupId;
+    }
+
+    public void setSceneGroupId(String sceneGroupId)
+    {
+        this.sceneGroupId = sceneGroupId;
+    }
+
+    public Long getClipId()
+    {
+        return clipId;
+    }
+
+    public void setClipId(Long clipId)
+    {
+        this.clipId = clipId;
+    }
+
+    public String getAnalysisStatus()
+    {
+        return analysisStatus;
+    }
+
+    public void setAnalysisStatus(String analysisStatus)
+    {
+        this.analysisStatus = analysisStatus;
+    }
+
+    public PresenceVideoClipVo getClip()
+    {
+        return clip;
+    }
+
+    public void setClip(PresenceVideoClipVo clip)
+    {
+        this.clip = clip;
+    }
+
+    public PresenceVideoClipVo getSceneClip()
+    {
+        return sceneClip;
+    }
+
+    public void setSceneClip(PresenceVideoClipVo sceneClip)
+    {
+        this.sceneClip = sceneClip;
+    }
+
+    public List<AiAnalysisResultVo> getAnalysisResults()
+    {
+        return analysisResults;
+    }
+
+    public void setAnalysisResults(List<AiAnalysisResultVo> analysisResults)
+    {
+        this.analysisResults = analysisResults;
+    }
+
+    public List<AiAnalysisResultVo> getSceneAnalysisResults()
+    {
+        return sceneAnalysisResults;
+    }
+
+    public void setSceneAnalysisResults(List<AiAnalysisResultVo> sceneAnalysisResults)
+    {
+        this.sceneAnalysisResults = sceneAnalysisResults;
     }
 
     public Date getCreatedAt()

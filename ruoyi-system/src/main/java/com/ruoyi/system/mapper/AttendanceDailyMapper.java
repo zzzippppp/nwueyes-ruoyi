@@ -9,7 +9,7 @@ import com.ruoyi.system.domain.vo.PersonDailyAttendanceVo;
 public interface AttendanceDailyMapper
 {
     int upsertOnEnter(@Param("statDate") Date statDate, @Param("personId") Long personId,
-            @Param("locationId") Long locationId, @Param("eventTime") java.util.Date eventTime,
+            @Param("cameraId") Long cameraId, @Param("eventTime") java.util.Date eventTime,
             @Param("sessionId") Long sessionId);
 
     int updateOnExit(@Param("statDate") Date statDate, @Param("personId") Long personId,
@@ -18,8 +18,8 @@ public interface AttendanceDailyMapper
     int updateStatus(@Param("statDate") Date statDate, @Param("personId") Long personId,
             @Param("attendanceStatus") String attendanceStatus, @Param("sessionId") Long sessionId);
 
-    List<PersonDailyAttendanceVo> selectDailyList(@Param("statDate") Date statDate,
-            @Param("locationId") Long locationId, @Param("personType") String personType,
+    List<PersonDailyAttendanceVo> selectDailyList(@Param("beginDate") Date beginDate, @Param("endDate") Date endDate,
+            @Param("cameraId") Long cameraId, @Param("personType") String personType,
             @Param("displayName") String displayName, @Param("employeeNo") String employeeNo,
             @Param("attendanceStatus") String attendanceStatus, @Param("limit") int limit);
 

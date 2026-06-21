@@ -6,14 +6,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <insert id="upsertOnEnter">
         INSERT INTO person_daily_attendance (
-            stat_date, person_id, location_id, first_enter_at, enter_count,
+            stat_date, person_id, camera_id, first_enter_at, enter_count,
             attendance_status, is_attended, current_session_id, updated_at
         ) VALUES (
-            #{statDate}, #{personId}, #{locationId}, #{eventTime}, 1,
+            #{statDate}, #{personId}, #{cameraId}, #{eventTime}, 1,
             'present', TRUE, #{sessionId}, NOW()
         )
         ON CONFLICT (stat_date, person_id) DO UPDATE SET
-            location_id = COALESCE(EXCLUDED.location_id, person_daily_attendance.location_id),
+            camera_id = COALESCE(EXCLUDED.camera_id, person_daily_attendance.camera_id),
             first_enter_at = LEAST(person_daily_attendance.first_enter_at, EXCLUDED.first_enter_at),
             enter_count = person_daily_attendance.enter_count + 1,
             attendance_status = 'present',
@@ -50,8 +50,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             p.display_name AS displayName,
             p.employee_no AS employeeNo,
             p.person_type::text AS personType,
-            pda.location_id AS locationId,
-            l.name AS locationName,
+            pda.camera_id AS cameraId,
+            c.device_name AS deviceName,
             pda.first_enter_at AS firstEnterAt,
             pda.last_exit_at AS lastExitAt,
             pda.total_dwell_seconds AS totalDwellSeconds,
@@ -61,11 +61,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             pda.current_session_id AS currentSessionId
         FROM person_daily_attendance pda
         INNER JOIN persons p ON p.id = pda.person_id
-        LEFT JOIN locations l ON l.id = pda.location_id
+        LEFT JOIN camera c ON c.id = pda.camera_id
         <where>
-            pda.stat_date = #{statDate}
-            <if test="locationId != null">
-                AND pda.location_id = #{locationId}
+            pda.stat_date &gt;= #{beginDate}
+            AND pda.stat_date &lt;= #{endDate}
+            <if test="cameraId != null">
+                AND pda.camera_id = #{cameraId}
             </if>
             <if test="personType != null and personType != ''">
                 AND p.person_type::text = #{personType}

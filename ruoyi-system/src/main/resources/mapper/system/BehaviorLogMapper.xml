@@ -13,11 +13,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             p.employee_no AS employeeNo,
             bl.event_type AS eventType,
             bl.event_time AS eventTime,
+            bl.face_image_url AS faceImageUrl,
+            bl.body_image_url AS bodyImageUrl,
             bl.snapshot_url AS snapshotUrl,
-            bl.snapshot_url AS faceImageUrl,
             bl.video_url AS videoUrl,
-            bl.location_id AS locationId,
-            l.name AS locationName,
+            bl.camera_id AS cameraId,
+            c.device_name AS deviceName,
             bl.person_id AS personId,
             bl.track_key AS trackKey,
             bl.session_id AS sessionId,
@@ -25,17 +26,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             bl.body_match_score AS bodyMatchScore,
             bl.quality_flag AS qualityFlag,
             bl.behavior_analysis AS behaviorAnalysis,
+            bl.scene_group_id AS sceneGroupId,
+            bl.clip_id AS clipId,
+            bl.analysis_status AS analysisStatus,
             bl.created_at AS createdAt
         FROM behavior_logs bl
-        LEFT JOIN locations l ON l.id = bl.location_id
+        LEFT JOIN camera c ON c.id = bl.camera_id
         LEFT JOIN persons p ON p.id = bl.person_id
         <where>
-            <if test="statDate != null">
-                bl.event_time &gt;= #{statDate}::date
-                AND bl.event_time &lt; (#{statDate}::date + INTERVAL '1 day')
+            <if test="beginDate != null and endDate != null">
+                bl.event_time &gt;= #{beginDate}::date
+                AND bl.event_time &lt; (#{endDate}::date + INTERVAL '1 day')
             </if>
-            <if test="locationId != null">
-                AND bl.location_id = #{locationId}
+            <if test="cameraId != null">
+                AND bl.camera_id = #{cameraId}
             </if>
             <if test="eventType != null and eventType != ''">
                 AND bl.event_type = #{eventType}
@@ -59,9 +63,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         INSERT INTO behavior_logs (
             event_type,
             event_time,
+            face_image_url,
+            body_image_url,
             snapshot_url,
             video_url,
-            location_id,
+            camera_id,
             person_id,
             track_key,
             session_id,
@@ -70,9 +76,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         ) VALUES (
             #{eventType},
             #{eventTime},
+            #{faceImageUrl},
+            #{bodyImageUrl},
             #{snapshotUrl},
             #{videoUrl},
-            #{locationId},
+            #{cameraId},
             #{personId},
             #{trackKey},
             #{sessionId},

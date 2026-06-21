@@ -16,8 +16,6 @@ public class DataBoardPersonItemVo
 
     private String employeeNo;
 
-    private String tagsText;
-
     private String note;
 
     private String faceImageUrl;
@@ -65,16 +63,6 @@ public class DataBoardPersonItemVo
     public void setEmployeeNo(String employeeNo)
     {
         this.employeeNo = employeeNo;
-    }
-
-    public String getTagsText()
-    {
-        return tagsText;
-    }
-
-    public void setTagsText(String tagsText)
-    {
-        this.tagsText = tagsText;
     }
 
     public String getNote()

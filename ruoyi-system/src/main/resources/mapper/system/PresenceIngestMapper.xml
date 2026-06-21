@@ -5,18 +5,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 <mapper namespace="com.ruoyi.system.mapper.PresenceIngestMapper">
 
     <select id="existsLocation" resultType="int">
-        SELECT COUNT(1) FROM locations WHERE id = #{locationId}
+        SELECT COUNT(1) FROM camera WHERE id = #{cameraId}
     </select>
 
     <select id="selectOpenByTrack" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             person_id AS personId,
             track_key AS trackKey,
             arrival_at AS arrivalAt
         FROM presence_sessions
-        WHERE location_id = #{locationId}
+        WHERE camera_id = #{cameraId}
           AND track_key = #{trackKey}
           AND status = 'open'
         ORDER BY id DESC
@@ -26,7 +26,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectOpenBySessionId" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             person_id AS personId,
             track_key AS trackKey,
             arrival_at AS arrivalAt
@@ -39,12 +39,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectLatestOpenByPerson" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             person_id AS personId,
             track_key AS trackKey,
             arrival_at AS arrivalAt
         FROM presence_sessions
-        WHERE location_id = #{locationId}
+        WHERE camera_id = #{cameraId}
           AND person_id = #{personId}
           AND status = 'open'
         ORDER BY id DESC
@@ -54,12 +54,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectLatestOpenByLocation" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             person_id AS personId,
             track_key AS trackKey,
             arrival_at AS arrivalAt
         FROM presence_sessions
-        WHERE location_id = #{locationId}
+        WHERE camera_id = #{cameraId}
           AND status = 'open'
         ORDER BY id DESC
         LIMIT 1
@@ -67,27 +67,25 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <select id="insertOpenSession" resultType="java.lang.Long">
         INSERT INTO presence_sessions (
-            location_id,
+            camera_id,
             person_id,
             track_key,
             attendance_date,
             arrival_at,
             status,
             best_match_score,
-            enter_face_embedding,
             enter_body_embedding,
             created_at,
             updated_at
         )
         VALUES (
-            #{locationId},
+            #{cameraId},
             #{personId},
             #{trackKey},
             (#{eventTime} AT TIME ZONE 'Asia/Shanghai')::date,
             #{eventTime},
             'open',
             #{bestMatchScore},
-            CAST(#{enterFaceEmbedding} AS vector),
             CAST(#{enterBodyEmbedding} AS vector),
             NOW(),
             NOW()

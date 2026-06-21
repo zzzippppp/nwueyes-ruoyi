@@ -4,18 +4,93 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.DataBoardMapper">
 
+    <sql id="rangeStartTs">
+        <choose>
+            <when test="filter != null and filter.beginTime != null and filter.beginTime != ''">
+                (#{beginDate}::timestamp + CAST(#{filter.beginTime} AS time))
+            </when>
+            <otherwise>
+                #{beginDate}::date
+            </otherwise>
+        </choose>
+    </sql>
+
+    <sql id="rangeEndTs">
+        <choose>
+            <when test="filter != null and filter.endTime != null and filter.endTime != ''">
+                (#{beginDate}::timestamp + CAST(#{filter.endTime} AS time) + INTERVAL '1 minute')
+            </when>
+            <otherwise>
+                (#{endDate}::date + INTERVAL '1 day')
+            </otherwise>
+        </choose>
+    </sql>
+
+    <sql id="rangeCheckTs">
+        LEAST(<include refid="rangeEndTs"/>, NOW())
+    </sql>
+
+    <sql id="sessionOverlapsRange">
+        ps.arrival_at &lt; <include refid="rangeEndTs"/>
+        AND (ps.status = 'open' OR COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>)
+    </sql>
+
     <sql id="daySessionFilter">
-        ps.arrival_at &gt;= #{statDate}::date
-        AND ps.arrival_at &lt; (#{statDate}::date + INTERVAL '1 day')
-        <if test="locationId != null">
-            AND ps.location_id = #{locationId}
+        <choose>
+            <when test="filter != null and filter.beginTime != null and filter.beginTime != ''">
+                <include refid="sessionOverlapsRange"/>
+            </when>
+            <otherwise>
+                ps.arrival_at &gt;= <include refid="rangeStartTs"/>
+                AND ps.arrival_at &lt; <include refid="rangeEndTs"/>
+            </otherwise>
+        </choose>
+        <if test="cameraId != null">
+            AND ps.camera_id = #{cameraId}
         </if>
     </sql>
 
     <sql id="openSessionFilter">
         ps.status = 'open'
-        <if test="locationId != null">
-            AND ps.location_id = #{locationId}
+        <if test="cameraId != null">
+            AND ps.camera_id = #{cameraId}
+        </if>
+    </sql>
+
+    <sql id="sessionPersonFilters">
+        <if test="filter != null and filter.displayName != null and filter.displayName != ''">
+            AND COALESCE(p.display_name, ps.track_key, '') ILIKE CONCAT('%', #{filter.displayName}, '%')
+        </if>
+        <if test="filter != null and filter.employeeNo != null and filter.employeeNo != ''">
+            AND COALESCE(p.employee_no, '') ILIKE CONCAT('%', #{filter.employeeNo}, '%')
+        </if>
+        <if test="filter != null and filter.personType != null and filter.personType != ''">
+            AND COALESCE(p.person_type::text, 'stranger') = #{filter.personType}
+        </if>
+    </sql>
+
+    <sql id="sessionTimeScope">
+        <choose>
+            <when test="filter != null and filter.sessionStatus == 'open'">
+                ps.status = 'open'
+                AND <include refid="sessionOverlapsRange"/>
+            </when>
+            <when test="filter != null and filter.sessionStatus == 'closed'">
+                ps.status = 'closed'
+                AND <include refid="sessionOverlapsRange"/>
+            </when>
+            <when test="filter != null and filter.beginTime != null and filter.beginTime != ''">
+                <include refid="sessionOverlapsRange"/>
+            </when>
+            <otherwise>
+                (
+                    (ps.arrival_at &gt;= <include refid="rangeStartTs"/> AND ps.arrival_at &lt; <include refid="rangeEndTs"/>)
+                    OR ps.status = 'open'
+                )
+            </otherwise>
+        </choose>
+        <if test="cameraId != null">
+            AND ps.camera_id = #{cameraId}
         </if>
     </sql>
 
@@ -51,14 +126,28 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             FROM presence_sessions ps
             LEFT JOIN persons p ON p.id = ps.person_id
             <where>
-                <include refid="daySessionFilter"/>
+                <include refid="sessionTimeScope"/>
+                <include refid="sessionPersonFilters"/>
             </where>
         ) day_stats
         CROSS JOIN (
             SELECT COUNT(*)::bigint AS open_session_count
             FROM presence_sessions ps
+            LEFT JOIN persons p ON p.id = ps.person_id
             <where>
-                <include refid="openSessionFilter"/>
+                <choose>
+                    <when test="filter != null and filter.sessionStatus == 'open'">
+                        <include refid="sessionTimeScope"/>
+                        <include refid="sessionPersonFilters"/>
+                    </when>
+                    <when test="filter != null and filter.sessionStatus == 'closed'">
+                        AND 1 = 0
+                    </when>
+                    <otherwise>
+                        <include refid="openSessionFilter"/>
+                        <include refid="sessionPersonFilters"/>
+                    </otherwise>
+                </choose>
             </where>
         ) open_stats
     </select>
@@ -81,12 +170,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         ORDER BY hour
     </select>
 
-    <select id="selectByLocation" resultType="com.ruoyi.system.domain.vo.DataBoardLocationItemVo">
+    <select id="selectByCamera" resultType="com.ruoyi.system.domain.vo.DataBoardCameraItemVo">
         SELECT
-            l.id AS locationId,
-            l.name AS locationName,
-            l.device_serial AS deviceSerial,
-            l.channel_no AS channelNo,
+            c.id AS cameraId,
+            c.device_name AS deviceName,
+            c.serial_no AS deviceSerial,
+            c.channel_no AS channelNo,
             COUNT(ps.id)::bigint AS sessionCount,
             COALESCE(SUM(
                 CASE
@@ -96,16 +185,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 END
             ), 0)::bigint AS dwellSeconds,
             COUNT(ps.id) FILTER (WHERE ps.status = 'open')::bigint AS openCount
-        FROM locations l
-        LEFT JOIN presence_sessions ps ON ps.location_id = l.id
-            AND ps.arrival_at &gt;= #{statDate}::date
-            AND ps.arrival_at &lt; (#{statDate}::date + INTERVAL '1 day')
-        WHERE l.is_active = TRUE
-        <if test="locationId != null">
-            AND l.id = #{locationId}
+        FROM camera c
+        LEFT JOIN presence_sessions ps ON ps.camera_id = c.id
+            AND ps.arrival_at &gt;= <include refid="rangeStartTs"/>
+            AND ps.arrival_at &lt; <include refid="rangeEndTs"/>
+        WHERE c.online_status = 'online'
+        <if test="cameraId != null">
+            AND c.id = #{cameraId}
         </if>
-        GROUP BY l.id, l.name, l.device_serial, l.channel_no
-        ORDER BY sessionCount DESC, l.id
+        GROUP BY c.id, c.device_name, c.serial_no, c.channel_no
+        ORDER BY sessionCount DESC, c.id
     </select>
 
     <select id="selectRecentSessions" resultType="com.ruoyi.system.domain.vo.DataBoardRecentSessionVo">
@@ -114,7 +203,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             ps.person_id AS personId,
             COALESCE(p.display_name, '未知访客') AS displayName,
             COALESCE(p.person_type::text, 'stranger') AS personKind,
-            l.name AS locationName,
+            COALESCE(p.employee_no, '') AS employeeNo,
+            c.device_name AS deviceName,
             ps.arrival_at AS arrivalAt,
             ps.departure_at AS departureAt,
             ps.status::text AS status,
@@ -124,23 +214,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             END AS dwellSeconds,
             fp.image_url AS face_image_url
         FROM presence_sessions ps
-        INNER JOIN locations l ON l.id = ps.location_id
+        INNER JOIN camera c ON c.id = ps.camera_id
         LEFT JOIN persons p ON p.id = ps.person_id
         LEFT JOIN LATERAL (
             SELECT image_url
             FROM face_profiles
             WHERE person_id = ps.person_id
-            ORDER BY is_primary DESC, created_at DESC
+            ORDER BY created_at DESC
             LIMIT 1
         ) fp ON ps.person_id IS NOT NULL
         <where>
-            (
-                (ps.arrival_at &gt;= #{statDate}::date AND ps.arrival_at &lt; (#{statDate}::date + INTERVAL '1 day'))
-                OR ps.status = 'open'
-            )
-            <if test="locationId != null">
-                AND ps.location_id = #{locationId}
-            </if>
+            <include refid="sessionTimeScope"/>
+            <include refid="sessionPersonFilters"/>
         </where>
         ORDER BY ps.arrival_at DESC
         LIMIT #{limit}
@@ -152,7 +237,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             p.display_name AS displayName,
             p.person_type::text AS personKind,
             p.employee_no AS employeeNo,
-            COALESCE(array_to_string(p.tags, ','), '') AS tagsText,
             COALESCE(p.note, '') AS note,
             COALESCE(p.face_image_url, fp.image_url) AS face_image_url,
             bp.image_url AS body_image_url,
@@ -169,14 +253,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             SELECT image_url
             FROM face_profiles
             WHERE person_id = p.id
-            ORDER BY is_primary DESC, created_at DESC
+            ORDER BY created_at DESC
             LIMIT 1
         ) fp ON TRUE
         LEFT JOIN LATERAL (
             SELECT image_url
             FROM body_profiles
             WHERE person_id = p.id
-            ORDER BY is_primary DESC, created_at DESC
+            ORDER BY created_at DESC
             LIMIT 1
         ) bp ON TRUE
         ORDER BY p.id DESC
@@ -186,7 +270,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SELECT
             x.track_key AS trackKey,
             COALESCE(x.display_name, '未知访客') AS displayName,
-            COALESCE(x.tags_text, '') AS tagsText,
             fp.image_url AS face_image_url,
             x.person_id AS mergedPersonId
         FROM (
@@ -194,14 +277,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 ps.track_key,
                 ps.person_id,
                 p.display_name,
-                COALESCE(array_to_string(p.tags, ','), '') AS tags_text,
                 ps.arrival_at
             FROM presence_sessions ps
             LEFT JOIN persons p ON p.id = ps.person_id
             WHERE ps.track_key IS NOT NULL
               AND ps.track_key &lt;&gt; ''
-              <if test="locationId != null">
-                AND ps.location_id = #{locationId}
+              <if test="cameraId != null">
+                AND ps.camera_id = #{cameraId}
               </if>
               AND (ps.person_id IS NULL OR p.person_type = 'stranger')
             ORDER BY ps.track_key, ps.arrival_at DESC
@@ -210,7 +292,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             SELECT image_url
             FROM face_profiles
             WHERE person_id = x.person_id
-            ORDER BY is_primary DESC, created_at DESC
+            ORDER BY created_at DESC
             LIMIT 1
         ) fp ON x.person_id IS NOT NULL
         ORDER BY x.arrival_at DESC
@@ -221,10 +303,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SET display_name = #{displayName},
             person_type = CAST(#{personType} AS person_type),
             employee_no = #{employeeNo},
-            tags = CASE
-                WHEN #{tagsText} IS NULL OR #{tagsText} = '' THEN ARRAY[]::text[]
-                ELSE string_to_array(#{tagsText}, ',')
-            END,
             note = #{note},
             updated_at = NOW()
         WHERE id = #{personId}
@@ -304,15 +382,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </select>
 
     <insert id="insertPerson">
-        INSERT INTO persons (display_name, person_type, employee_no, tags, note, created_at, updated_at)
+        INSERT INTO persons (display_name, person_type, employee_no, note, created_at, updated_at)
         VALUES (
             #{displayName},
             CAST(#{personType} AS person_type),
             #{employeeNo},
-            CASE
-                WHEN #{tagsText} IS NULL OR #{tagsText} = '' THEN ARRAY[]::text[]
-                ELSE string_to_array(#{tagsText}, ',')
-            END,
             #{note},
             NOW(),
             NOW()
@@ -324,15 +398,174 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </select>
 
     <insert id="insertFaceProfile">
-        INSERT INTO face_profiles (person_id, embedding, image_url, is_primary, created_at)
-        VALUES (#{personId}, array_fill(0.0::real, ARRAY[512])::vector(512), #{imageUrl}, TRUE, NOW())
+        INSERT INTO face_profiles (person_id, embedding, image_url, created_at)
+        VALUES (#{personId}, array_fill(0.0::real, ARRAY[512])::vector(512), #{imageUrl}, NOW())
     </insert>
 
-    <update id="updateLocation">
-        UPDATE locations
-        SET name = #{locationName},
-            is_active = COALESCE(#{isActive}, is_active)
-        WHERE id = #{locationId}
+    <update id="updateCamera">
+        UPDATE camera
+        SET device_name = #{deviceName},
+            online_status = CASE
+                WHEN #{isActive} IS NULL THEN online_status
+                WHEN #{isActive} THEN 'online'::camera_online_status
+                ELSE 'offline'::camera_online_status
+            END,
+            updated_at = NOW()
+        WHERE id = #{cameraId}
     </update>
+
+    <select id="selectRegisteredPersonCount" resultType="java.lang.Long">
+        SELECT COUNT(*)::bigint
+        FROM persons
+        WHERE person_type IN ('student', 'staff')
+    </select>
+
+    <select id="selectTodayKnownAttendanceCount" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT ps.person_id)::bigint
+        FROM presence_sessions ps
+        INNER JOIN persons p ON p.id = ps.person_id
+        WHERE p.person_type IN ('student', 'staff')
+          AND ps.arrival_at &gt;= #{today}::date
+          AND ps.arrival_at &lt; (#{today}::date + INTERVAL '1 day')
+        <if test="cameraId != null">
+            AND ps.camera_id = #{cameraId}
+        </if>
+    </select>
+
+    <select id="selectAttendanceInfoList" resultType="com.ruoyi.system.domain.vo.DataBoardAttendanceItemVo">
+        SELECT *
+        FROM (
+            SELECT
+                p.id AS personId,
+                p.display_name AS displayName,
+                COALESCE(p.employee_no, '') AS employeeNo,
+                p.person_type::text AS personKind,
+                ll.device_name AS locationName,
+                CASE
+                    WHEN COALESCE(sir.overlapped, FALSE) = FALSE THEN 'absent'
+                    WHEN COALESCE(sir.present_at_end, FALSE) = TRUE THEN 'present'
+                    ELSE 'left'
+                END AS attendanceStatus,
+                COALESCE(pc.passage_count, 0) AS passageCount,
+                sir.first_arrival AS arrivalAt,
+                CASE WHEN COALESCE(sir.present_at_end, FALSE) THEN NULL ELSE sir.last_departure END AS departureAt,
+                COALESCE(sir.dwell_seconds, 0) AS dwellSeconds,
+                COALESCE(sir.overlapped, FALSE) AS overlapped
+            FROM persons p
+            LEFT JOIN (
+                SELECT
+                    ps.person_id,
+                    BOOL_OR(
+                        ps.arrival_at &lt; <include refid="rangeEndTs"/>
+                        AND (ps.status = 'open' OR COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>)
+                    ) AS overlapped,
+                    BOOL_OR(
+                        ps.arrival_at &lt;= <include refid="rangeCheckTs"/>
+                        AND (ps.status = 'open' OR COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeCheckTs"/>)
+                    ) AS present_at_end,
+                    MIN(ps.arrival_at) FILTER (
+                        WHERE ps.arrival_at &lt; <include refid="rangeEndTs"/>
+                          AND (ps.status = 'open' OR COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>)
+                    ) AS first_arrival,
+                    MAX(ps.departure_at) FILTER (
+                        WHERE ps.status = 'closed'
+                          AND ps.arrival_at &lt; <include refid="rangeEndTs"/>
+                          AND COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>
+                    ) AS last_departure,
+                    COALESCE(SUM(
+                        CASE
+                            WHEN ps.arrival_at &lt; <include refid="rangeEndTs"/>
+                             AND (ps.status = 'open' OR COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>)
+                             THEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (
+                                LEAST(COALESCE(ps.departure_at, NOW()), <include refid="rangeEndTs"/>, NOW())
+                                - GREATEST(ps.arrival_at, <include refid="rangeStartTs"/>)
+                             ))))::bigint
+                            ELSE 0
+                        END
+                    ), 0)::bigint AS dwell_seconds
+                FROM presence_sessions ps
+                WHERE ps.person_id IS NOT NULL
+                <if test="cameraId != null">
+                    AND ps.camera_id = #{cameraId}
+                </if>
+                GROUP BY ps.person_id
+            ) sir ON sir.person_id = p.id
+            LEFT JOIN (
+                SELECT DISTINCT ON (ps.person_id)
+                    ps.person_id,
+                    c.device_name
+                FROM presence_sessions ps
+                INNER JOIN camera c ON c.id = ps.camera_id
+                WHERE ps.person_id IS NOT NULL
+                  AND ps.arrival_at &lt; <include refid="rangeEndTs"/>
+                  AND (ps.status = 'open' OR COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>)
+                <if test="cameraId != null">
+                    AND ps.camera_id = #{cameraId}
+                </if>
+                ORDER BY ps.person_id, ps.arrival_at DESC
+            ) ll ON ll.person_id = p.id
+            LEFT JOIN (
+                SELECT bl.person_id, COUNT(*)::bigint AS passage_count
+                FROM behavior_logs bl
+                WHERE bl.person_id IS NOT NULL
+                  AND bl.event_type = 'enter'
+                  AND bl.event_time &gt;= <include refid="rangeStartTs"/>
+                  AND bl.event_time &lt; <include refid="rangeEndTs"/>
+                <if test="cameraId != null">
+                    AND bl.camera_id = #{cameraId}
+                </if>
+                GROUP BY bl.person_id
+            ) pc ON pc.person_id = p.id
+            <where>
+                <choose>
+                    <when test="filter != null and filter.personType != null and filter.personType != ''">
+                        AND p.person_type::text = #{filter.personType}
+                    </when>
+                    <otherwise>
+                        AND (
+                            EXISTS (SELECT 1 FROM face_profiles fp WHERE fp.person_id = p.id)
+                            OR COALESCE(p.face_image_url, '') &lt;&gt; ''
+                            OR EXISTS (
+                                SELECT 1
+                                FROM presence_sessions ps2
+                                WHERE ps2.person_id = p.id
+                                  AND ps2.arrival_at &lt; <include refid="rangeEndTs"/>
+                                  AND (ps2.status = 'open' OR COALESCE(ps2.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>)
+                                <if test="cameraId != null">
+                                  AND ps2.camera_id = #{cameraId}
+                                </if>
+                            )
+                        )
+                    </otherwise>
+                </choose>
+                <if test="filter != null and filter.displayName != null and filter.displayName != ''">
+                    AND p.display_name ILIKE CONCAT('%', #{filter.displayName}, '%')
+                </if>
+                <if test="filter != null and filter.employeeNo != null and filter.employeeNo != ''">
+                    AND COALESCE(p.employee_no, '') ILIKE CONCAT('%', #{filter.employeeNo}, '%')
+                </if>
+            </where>
+        ) attendance_rows
+        <where>
+            <if test="filter != null and filter.sessionStatus == 'absent'">
+                AND attendanceStatus = 'absent'
+            </if>
+            <if test="filter != null and filter.sessionStatus == 'present'">
+                AND attendanceStatus = 'present'
+            </if>
+            <if test="filter != null and filter.sessionStatus == 'left'">
+                AND attendanceStatus = 'left'
+            </if>
+            <!-- 兼容旧 open/closed 筛选 -->
+            <if test="filter != null and filter.sessionStatus == 'open'">
+                AND attendanceStatus = 'present'
+            </if>
+            <if test="filter != null and filter.sessionStatus == 'closed'">
+                AND attendanceStatus = 'left'
+            </if>
+        </where>
+        ORDER BY dwellSeconds DESC, displayName ASC
+        LIMIT #{limit}
+    </select>
 
 </mapper>

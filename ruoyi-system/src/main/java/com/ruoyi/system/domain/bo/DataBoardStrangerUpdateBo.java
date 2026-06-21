@@ -12,8 +12,6 @@ public class DataBoardStrangerUpdateBo
     /** student 或 staff */
     private String personType;
 
-    private String tagsText;
-
     public String getDisplayName()
     {
         return displayName;
@@ -42,15 +40,5 @@ public class DataBoardStrangerUpdateBo
     public void setPersonType(String personType)
     {
         this.personType = personType;
-    }
-
-    public String getTagsText()
-    {
-        return tagsText;
-    }
-
-    public void setTagsText(String tagsText)
-    {
-        this.tagsText = tagsText;
     }
 }

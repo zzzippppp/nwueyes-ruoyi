@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.uuid.IdUtils;
-import com.ruoyi.system.domain.bo.DataBoardLocationUpdateBo;
+import com.ruoyi.system.domain.bo.DataBoardCameraUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardPersonUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardSessionUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardStrangerUpdateBo;
@@ -53,7 +53,7 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
     public boolean updatePerson(Long personId, DataBoardPersonUpdateBo bo)
     {
         return dataBoardMapper.updatePerson(personId, bo.getDisplayName(), normalizePersonType(bo.getPersonType()),
-                normalizeEmployeeNo(bo.getEmployeeNo()), bo.getTagsText(), bo.getNote()) > 0;
+                normalizeEmployeeNo(bo.getEmployeeNo()), bo.getNote()) > 0;
     }
 
     @Override
@@ -100,7 +100,7 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
             }
         }
 
-        return dataBoardMapper.updatePerson(strangerId, displayName, personType, employeeNo, bo.getTagsText(), "") > 0;
+        return dataBoardMapper.updatePerson(strangerId, displayName, personType, employeeNo, "") > 0;
     }
 
     @Override
@@ -118,13 +118,13 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
     }
 
     @Override
-    public boolean updateLocation(Long locationId, DataBoardLocationUpdateBo bo)
+    public boolean updateCamera(Long cameraId, DataBoardCameraUpdateBo bo)
     {
-        return dataBoardMapper.updateLocation(locationId, bo.getLocationName(), bo.getIsActive()) > 0;
+        return dataBoardMapper.updateCamera(cameraId, bo.getDeviceName(), bo.getIsActive()) > 0;
     }
 
     @Override
-    public String uploadFaceAndCreatePerson(String displayName, String personKind, String tagsText, String note,
+    public String uploadFaceAndCreatePerson(String displayName, String personKind, String note,
             MultipartFile avatarFile) throws Exception
     {
         Path faceDir = storagePaths.faceLibraryRoot();
@@ -136,7 +136,7 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
         avatarFile.transferTo(savePath.toFile());
 
         String imageUrl = storagePaths.buildArchiveFaceUrl(fileName);
-        dataBoardMapper.insertPerson(defaultName(displayName), normalizePersonType(personKind), null, tagsText, note);
+        dataBoardMapper.insertPerson(defaultName(displayName), normalizePersonType(personKind), null, note);
         Long personId = dataBoardMapper.selectLastPersonId();
         if (personId == null)
         {

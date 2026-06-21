@@ -15,7 +15,7 @@ presence:
   ingest:
     enabled: true
     apiKey: ${PRESENCE_INGEST_API_KEY:change-me-ingest-key}
-    defaultLocationId: 1
+    defaultCameraId: 1
     workspaceRoot: ${PRESENCE_WORKSPACE_ROOT:./ruoyi}
     replayProfileRoot: ${NWUEYES_UPLOAD_PATH:./data/uploadPath}
     replayIngestBaseUrl: ${PRESENCE_INGEST_BASE_URL:http://localhost:8080}
@@ -28,6 +28,24 @@ presence:
     faceMatchThreshold: 0.45
     bodyMatchThreshold: 0.50
     liveScriptPath: scripts/live_stream_worker_yolo.py
+    clip:
+      # 直播识别建议关闭：主码流环形缓冲占内存过大，易触发 exitCode=1
+      enabled: false
+      preRollSec: 3
+      postRollSec: 3
+      trackLostSec: 2
+      sceneMergeGapSec: 5
+    analysis:
+      enabled: false
+      autoRun: false
+      timeoutSec: 60
+      prompt: 请分析这段监控视频中的人物外观、行为、多人互动和潜在风险，返回JSON字段summary、appearance、behavior、riskLevel。
+      models:
+        # - enabled: true
+        #   modelKey: qwen-vl
+        #   modelName: qwen-vl-max
+        #   baseUrl: https://example.com/v1/chat/completions
+        #   apiKey: ${VISION_MODEL_API_KEY:}
     live:
       targetDetectFps: 15
       yoloImgsz: 1280

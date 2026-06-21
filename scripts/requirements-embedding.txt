@@ -1,16 +1,4 @@
-# Step 2: 人脸 / 体态 embedding（512 维）
-#
-# 安装（在 replayPythonCommand 对应环境中）:
-#   pip install -r ruoyi/scripts/requirements-embedding.txt
-#
-# 用法:
-#   python ruoyi/scripts/embed_features.py --kind face --image path/to/face.jpg
-#   python ruoyi/scripts/embed_features.py --kind body --image path/to/body.jpg
-#   python ruoyi/scripts/embed_features.py --kind both --face-image f.jpg --body-image b.jpg
-#
-# 输出 JSON 字段:
-#   ok, kind, dim(512), embedding[], model, quality, error
-
+# Face/body embedding dependencies.
 insightface>=0.7.3
 onnxruntime>=1.16.0
 torch

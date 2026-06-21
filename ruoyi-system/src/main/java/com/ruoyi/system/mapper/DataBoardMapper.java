@@ -3,8 +3,10 @@ package com.ruoyi.system.mapper;
 import java.util.Date;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
+import com.ruoyi.system.domain.bo.DataBoardSessionFilterBo;
+import com.ruoyi.system.domain.vo.DataBoardAttendanceItemVo;
 import com.ruoyi.system.domain.vo.DataBoardHourlyItemVo;
-import com.ruoyi.system.domain.vo.DataBoardLocationItemVo;
+import com.ruoyi.system.domain.vo.DataBoardCameraItemVo;
 import com.ruoyi.system.domain.vo.DataBoardOverviewVo;
 import com.ruoyi.system.domain.vo.DataBoardPersonItemVo;
 import com.ruoyi.system.domain.vo.DataBoardRecentSessionVo;
@@ -15,24 +17,32 @@ import com.ruoyi.system.domain.vo.DataBoardStrangerItemVo;
  */
 public interface DataBoardMapper
 {
-    DataBoardOverviewVo selectOverview(@Param("statDate") Date statDate, @Param("locationId") Long locationId);
+    DataBoardOverviewVo selectOverview(@Param("beginDate") Date beginDate, @Param("endDate") Date endDate,
+            @Param("cameraId") Long cameraId, @Param("filter") DataBoardSessionFilterBo filter);
 
-    List<DataBoardHourlyItemVo> selectHourlyTrend(@Param("statDate") Date statDate, @Param("locationId") Long locationId);
+    List<DataBoardHourlyItemVo> selectHourlyTrend(@Param("beginDate") Date beginDate, @Param("endDate") Date endDate,
+            @Param("cameraId") Long cameraId, @Param("filter") DataBoardSessionFilterBo filter);
 
-    List<DataBoardLocationItemVo> selectByLocation(@Param("statDate") Date statDate, @Param("locationId") Long locationId);
+    List<DataBoardCameraItemVo> selectByCamera(@Param("beginDate") Date beginDate, @Param("endDate") Date endDate,
+            @Param("cameraId") Long cameraId, @Param("filter") DataBoardSessionFilterBo filter);
 
-    List<DataBoardRecentSessionVo> selectRecentSessions(@Param("statDate") Date statDate,
-            @Param("locationId") Long locationId, @Param("limit") int limit);
+    List<DataBoardRecentSessionVo> selectRecentSessions(@Param("beginDate") Date beginDate,
+            @Param("endDate") Date endDate, @Param("cameraId") Long cameraId, @Param("limit") int limit,
+            @Param("filter") DataBoardSessionFilterBo filter);
 
-    List<DataBoardPersonItemVo> selectPersonItems(@Param("statDate") Date statDate, @Param("locationId") Long locationId,
-            @Param("limit") int limit);
+    List<DataBoardAttendanceItemVo> selectAttendanceInfoList(@Param("beginDate") Date beginDate,
+            @Param("endDate") Date endDate, @Param("cameraId") Long cameraId, @Param("limit") int limit,
+            @Param("filter") DataBoardSessionFilterBo filter);
 
-    List<DataBoardStrangerItemVo> selectStrangerItems(@Param("statDate") Date statDate,
-            @Param("locationId") Long locationId, @Param("limit") int limit);
+    List<DataBoardPersonItemVo> selectPersonItems(@Param("beginDate") Date beginDate, @Param("endDate") Date endDate,
+            @Param("cameraId") Long cameraId, @Param("limit") int limit);
+
+    List<DataBoardStrangerItemVo> selectStrangerItems(@Param("beginDate") Date beginDate,
+            @Param("endDate") Date endDate, @Param("cameraId") Long cameraId, @Param("limit") int limit);
 
     int updatePerson(@Param("personId") Long personId, @Param("displayName") String displayName,
             @Param("personType") String personType, @Param("employeeNo") String employeeNo,
-            @Param("tagsText") String tagsText, @Param("note") String note);
+            @Param("note") String note);
 
     Long selectPersonByEmployeeNo(@Param("employeeNo") String employeeNo);
 
@@ -61,12 +71,16 @@ public interface DataBoardMapper
     Long selectPersonIdByTrackKey(@Param("trackKey") String trackKey);
 
     int insertPerson(@Param("displayName") String displayName, @Param("personType") String personType,
-            @Param("employeeNo") String employeeNo, @Param("tagsText") String tagsText, @Param("note") String note);
+            @Param("employeeNo") String employeeNo, @Param("note") String note);
 
     Long selectLastPersonId();
 
     int insertFaceProfile(@Param("personId") Long personId, @Param("imageUrl") String imageUrl);
 
-    int updateLocation(@Param("locationId") Long locationId, @Param("locationName") String locationName,
+    int updateCamera(@Param("cameraId") Long cameraId, @Param("deviceName") String deviceName,
             @Param("isActive") Boolean isActive);
+
+    Long selectRegisteredPersonCount();
+
+    Long selectTodayKnownAttendanceCount(@Param("today") Date today, @Param("cameraId") Long cameraId);
 }

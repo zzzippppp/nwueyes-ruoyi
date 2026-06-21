@@ -13,6 +13,7 @@ import com.ruoyi.system.domain.vo.AttendanceDashboardVo;
 import com.ruoyi.system.domain.vo.PersonDailyAttendanceVo;
 import com.ruoyi.system.mapper.AttendanceDailyMapper;
 import com.ruoyi.system.service.IAttendanceDailyService;
+import com.ruoyi.system.support.StatDateRange;
 
 @Service
 public class AttendanceDailyServiceImpl implements IAttendanceDailyService
@@ -23,14 +24,14 @@ public class AttendanceDailyServiceImpl implements IAttendanceDailyService
     private AttendanceDailyMapper attendanceDailyMapper;
 
     @Override
-    public void onEnter(Long personId, Long locationId, Long sessionId, java.util.Date eventTime)
+    public void onEnter(Long personId, Long cameraId, Long sessionId, java.util.Date eventTime)
     {
         if (personId == null || eventTime == null)
         {
             return;
         }
         LocalDate statDate = eventTime.toInstant().atZone(STAT_ZONE).toLocalDate();
-        attendanceDailyMapper.upsertOnEnter(Date.valueOf(statDate), personId, locationId, eventTime, sessionId);
+        attendanceDailyMapper.upsertOnEnter(Date.valueOf(statDate), personId, cameraId, eventTime, sessionId);
     }
 
     @Override
@@ -45,13 +46,15 @@ public class AttendanceDailyServiceImpl implements IAttendanceDailyService
     }
 
     @Override
-    public List<PersonDailyAttendanceVo> listDailyAttendance(LocalDate statDate, Long locationId, String personType,
-            String displayName, String employeeNo, String attendanceStatus, int limit)
+    public List<PersonDailyAttendanceVo> listDailyAttendance(LocalDate statDate, LocalDate beginDate,
+            LocalDate endDate, Long cameraId, String personType, String displayName, String employeeNo,
+            String attendanceStatus, int limit)
     {
-        LocalDate queryDate = statDate != null ? statDate : LocalDate.now(STAT_ZONE);
+        StatDateRange range = StatDateRange.resolve(statDate, beginDate, endDate);
         int rowLimit = limit > 0 ? Math.min(limit, 500) : 200;
-        return attendanceDailyMapper.selectDailyList(Date.valueOf(queryDate), locationId, personType, displayName,
-                employeeNo, attendanceStatus, rowLimit);
+        return attendanceDailyMapper.selectDailyList(Date.valueOf(range.getBeginDate()),
+                Date.valueOf(range.getEndDate()), cameraId, personType, displayName, employeeNo, attendanceStatus,
+                rowLimit);
     }
 
     @Override

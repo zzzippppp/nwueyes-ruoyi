@@ -7,10 +7,9 @@ import com.ruoyi.system.domain.vo.BehaviorLogItemVo;
 
 public interface BehaviorLogMapper
 {
-    List<BehaviorLogItemVo> selectBehaviorLogList(@Param("statDate") LocalDate statDate,
-            @Param("locationId") Long locationId,
-            @Param("eventType") String eventType,
-            @Param("limit") Integer limit);
+    List<BehaviorLogItemVo> selectBehaviorLogList(@Param("beginDate") LocalDate beginDate,
+            @Param("endDate") LocalDate endDate, @Param("cameraId") Long cameraId,
+            @Param("eventType") String eventType, @Param("limit") Integer limit);
 
     int insertBehaviorLog(BehaviorLogItemVo row);
 

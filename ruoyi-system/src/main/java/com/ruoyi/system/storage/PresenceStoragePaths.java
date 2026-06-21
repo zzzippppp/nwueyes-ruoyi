@@ -115,6 +115,15 @@ public class PresenceStoragePaths
                 .resolve(DAY.format(date));
     }
 
+    public Path clipDir(LocalDate date)
+    {
+        return logLibraryRoot()
+                .resolve("clips")
+                .resolve(YEAR.format(date))
+                .resolve(MONTH.format(date))
+                .resolve(DAY.format(date));
+    }
+
     public String buildLogFaceUrl(LocalDate date, String fileName)
     {
         return LOG_URL_PREFIX + "/log/face/"
@@ -125,6 +134,13 @@ public class PresenceStoragePaths
     public String buildLogBodyUrl(LocalDate date, String fileName)
     {
         return LOG_URL_PREFIX + "/log/body/"
+                + YEAR.format(date) + "/" + MONTH.format(date) + "/" + DAY.format(date) + "/"
+                + fileName;
+    }
+
+    public String buildClipUrl(LocalDate date, String fileName)
+    {
+        return LOG_URL_PREFIX + "/clip/"
                 + YEAR.format(date) + "/" + MONTH.format(date) + "/" + DAY.format(date) + "/"
                 + fileName;
     }
@@ -147,6 +163,11 @@ public class PresenceStoragePaths
     public Path resolveLogBodyFile(LocalDate date, String fileName)
     {
         return logBodyDir(date).resolve(safeFileName(fileName)).normalize();
+    }
+
+    public Path resolveClipFile(LocalDate date, String fileName)
+    {
+        return clipDir(date).resolve(safeFileName(fileName)).normalize();
     }
 
     public Path resolveArchiveFaceFile(String fileName)
@@ -198,6 +219,7 @@ public class PresenceStoragePaths
     {
         Files.createDirectories(logFaceDir(date));
         Files.createDirectories(logBodyDir(date));
+        Files.createDirectories(clipDir(date));
     }
 
     public boolean isUnderRoot(Path file, Path root)
@@ -248,6 +270,38 @@ public class PresenceStoragePaths
             return optionalExisting(resolveSnapshotUrlPath(path.substring(snapshotPrefix.length())));
         }
         return Optional.empty();
+    }
+
+    /**
+     * 将 clip URL 解析为本地文件（OSS 上传等）。
+     */
+    public Optional<Path> resolveClipUrlToFile(String clipUrl)
+    {
+        if (StringUtils.isEmpty(clipUrl))
+        {
+            return Optional.empty();
+        }
+        String path = clipUrl.trim().replace("\\", "/");
+        int q = path.indexOf('?');
+        if (q >= 0)
+        {
+            path = path.substring(0, q);
+        }
+        String clipPrefix = LOG_URL_PREFIX + "/clip/";
+        if (!path.startsWith(clipPrefix))
+        {
+            return Optional.empty();
+        }
+        String[] parts = path.substring(clipPrefix.length()).split("/");
+        if (parts.length < 4)
+        {
+            return Optional.empty();
+        }
+        LocalDate date = LocalDate.of(
+                Integer.parseInt(parts[0]),
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]));
+        return optionalExisting(resolveClipFile(date, parts[3]));
     }
 
     private Path resolveSnapshotUrlPath(String relative)

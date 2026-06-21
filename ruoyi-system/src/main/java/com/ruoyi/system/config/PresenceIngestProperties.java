@@ -25,9 +25,9 @@ public class PresenceIngestProperties
     private String apiKey;
 
     /**
-     * 默认点位（请求未传 locationId 时使用）
+     * 默认点位（请求未传 cameraId 时使用）
      */
-    private Long defaultLocationId;
+    private Long defaultCameraId;
 
     /**
      * 回放脚本执行目录（项目根）
@@ -124,6 +124,16 @@ public class PresenceIngestProperties
      */
     private LiveIngest live = new LiveIngest();
 
+    /**
+     * 视频片段录制配置。
+     */
+    private ClipCapture clip = new ClipCapture();
+
+    /**
+     * 大模型分析配置。
+     */
+    private AiAnalysis analysis = new AiAnalysis();
+
     public static class LiveIngest
     {
         private double targetDetectFps = 3.0;
@@ -165,8 +175,8 @@ public class PresenceIngestProperties
         /** 公网云转发协议：4=FLV（OpenCV 更稳），2=HLS */
         private int ezvizCloudProtocol = 4;
 
-        /** 公网清晰度：2=子码流（连流快），1=主码流（画质高、首帧慢） */
-        private int ezvizCloudQuality = 2;
+        /** 公网清晰度：固定 1=主码流（2880×1620 等）；不再使用子码流 */
+        private int ezvizCloudQuality = 1;
 
         /** 可选：完整 RTSP 地址，配置后优先于自动拼接 */
         private String lanRtspUrl = "";
@@ -459,6 +469,392 @@ public class PresenceIngestProperties
         }
     }
 
+    public static class ClipCapture
+    {
+        private boolean enabled = true;
+
+        private double preRollSec = 3.0;
+
+        private double postRollSec = 3.0;
+
+        private double trackLostSec = 2.0;
+
+        private double sceneMergeGapSec = 5.0;
+
+        /** 本地 OpenCV MP4 仅作为兜底录像，默认由萤石回放提供最终片段。 */
+        private boolean localRecordingEnabled = false;
+
+        /** Ezviz cloud recording address format. MP4 is preferred for download and analysis. */
+        private String ezvizRecordingFormat = "MP4";
+
+        private int ezvizAddressExpireSeconds = 1800;
+
+        private int ezvizTranscodeBusType = 7;
+
+        private int ezvizTranscodePollIntervalMs = 3000;
+
+        private int ezvizTranscodePollMaxAttempts = 20;
+
+        private String ezvizSpaceId = "";
+
+        private String ezvizResultSpaceId = "";
+
+        public boolean isEnabled()
+        {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled)
+        {
+            this.enabled = enabled;
+        }
+
+        public double getPreRollSec()
+        {
+            return preRollSec;
+        }
+
+        public void setPreRollSec(double preRollSec)
+        {
+            this.preRollSec = preRollSec;
+        }
+
+        public double getPostRollSec()
+        {
+            return postRollSec;
+        }
+
+        public void setPostRollSec(double postRollSec)
+        {
+            this.postRollSec = postRollSec;
+        }
+
+        public double getTrackLostSec()
+        {
+            return trackLostSec;
+        }
+
+        public void setTrackLostSec(double trackLostSec)
+        {
+            this.trackLostSec = trackLostSec;
+        }
+
+        public double getSceneMergeGapSec()
+        {
+            return sceneMergeGapSec;
+        }
+
+        public void setSceneMergeGapSec(double sceneMergeGapSec)
+        {
+            this.sceneMergeGapSec = sceneMergeGapSec;
+        }
+
+        public boolean isLocalRecordingEnabled()
+        {
+            return localRecordingEnabled;
+        }
+
+        public void setLocalRecordingEnabled(boolean localRecordingEnabled)
+        {
+            this.localRecordingEnabled = localRecordingEnabled;
+        }
+
+        public String getEzvizRecordingFormat()
+        {
+            return ezvizRecordingFormat;
+        }
+
+        public void setEzvizRecordingFormat(String ezvizRecordingFormat)
+        {
+            this.ezvizRecordingFormat = ezvizRecordingFormat;
+        }
+
+        public int getEzvizAddressExpireSeconds()
+        {
+            return ezvizAddressExpireSeconds;
+        }
+
+        public void setEzvizAddressExpireSeconds(int ezvizAddressExpireSeconds)
+        {
+            this.ezvizAddressExpireSeconds = ezvizAddressExpireSeconds;
+        }
+
+        public int getEzvizTranscodeBusType()
+        {
+            return ezvizTranscodeBusType;
+        }
+
+        public void setEzvizTranscodeBusType(int ezvizTranscodeBusType)
+        {
+            this.ezvizTranscodeBusType = ezvizTranscodeBusType;
+        }
+
+        public int getEzvizTranscodePollIntervalMs()
+        {
+            return ezvizTranscodePollIntervalMs;
+        }
+
+        public void setEzvizTranscodePollIntervalMs(int ezvizTranscodePollIntervalMs)
+        {
+            this.ezvizTranscodePollIntervalMs = ezvizTranscodePollIntervalMs;
+        }
+
+        public int getEzvizTranscodePollMaxAttempts()
+        {
+            return ezvizTranscodePollMaxAttempts;
+        }
+
+        public void setEzvizTranscodePollMaxAttempts(int ezvizTranscodePollMaxAttempts)
+        {
+            this.ezvizTranscodePollMaxAttempts = ezvizTranscodePollMaxAttempts;
+        }
+
+        public String getEzvizSpaceId()
+        {
+            return ezvizSpaceId;
+        }
+
+        public void setEzvizSpaceId(String ezvizSpaceId)
+        {
+            this.ezvizSpaceId = ezvizSpaceId;
+        }
+
+        public String getEzvizResultSpaceId()
+        {
+            return ezvizResultSpaceId;
+        }
+
+        public void setEzvizResultSpaceId(String ezvizResultSpaceId)
+        {
+            this.ezvizResultSpaceId = ezvizResultSpaceId;
+        }
+    }
+
+    public static class AiAnalysis
+    {
+        private boolean enabled = false;
+
+        private int timeoutSec = 60;
+
+        private boolean autoRun = false;
+
+        private String prompt = "请分析这段监控视频中的人物外观、行为、多人互动和潜在风险，返回JSON字段summary、appearance、behavior、riskLevel。";
+
+        private java.util.List<Model> models = new java.util.ArrayList<>();
+
+        private Oss oss = new Oss();
+
+        public boolean isEnabled()
+        {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled)
+        {
+            this.enabled = enabled;
+        }
+
+        public int getTimeoutSec()
+        {
+            return timeoutSec;
+        }
+
+        public void setTimeoutSec(int timeoutSec)
+        {
+            this.timeoutSec = timeoutSec;
+        }
+
+        public boolean isAutoRun()
+        {
+            return autoRun;
+        }
+
+        public void setAutoRun(boolean autoRun)
+        {
+            this.autoRun = autoRun;
+        }
+
+        public String getPrompt()
+        {
+            return prompt;
+        }
+
+        public void setPrompt(String prompt)
+        {
+            this.prompt = prompt;
+        }
+
+        public java.util.List<Model> getModels()
+        {
+            return models;
+        }
+
+        public void setModels(java.util.List<Model> models)
+        {
+            this.models = models;
+        }
+
+        public Oss getOss()
+        {
+            return oss;
+        }
+
+        public void setOss(Oss oss)
+        {
+            this.oss = oss;
+        }
+    }
+
+    public static class Oss
+    {
+        private boolean enabled = false;
+
+        private String endpoint = "";
+
+        private String bucket = "";
+
+        private String accessKeyId = "";
+
+        private String accessKeySecret = "";
+
+        private String publicBaseUrl = "";
+
+        private String objectPrefix = "safetyguard/clips";
+
+        public boolean isEnabled()
+        {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled)
+        {
+            this.enabled = enabled;
+        }
+
+        public String getEndpoint()
+        {
+            return endpoint;
+        }
+
+        public void setEndpoint(String endpoint)
+        {
+            this.endpoint = endpoint;
+        }
+
+        public String getBucket()
+        {
+            return bucket;
+        }
+
+        public void setBucket(String bucket)
+        {
+            this.bucket = bucket;
+        }
+
+        public String getAccessKeyId()
+        {
+            return accessKeyId;
+        }
+
+        public void setAccessKeyId(String accessKeyId)
+        {
+            this.accessKeyId = accessKeyId;
+        }
+
+        public String getAccessKeySecret()
+        {
+            return accessKeySecret;
+        }
+
+        public void setAccessKeySecret(String accessKeySecret)
+        {
+            this.accessKeySecret = accessKeySecret;
+        }
+
+        public String getPublicBaseUrl()
+        {
+            return publicBaseUrl;
+        }
+
+        public void setPublicBaseUrl(String publicBaseUrl)
+        {
+            this.publicBaseUrl = publicBaseUrl;
+        }
+
+        public String getObjectPrefix()
+        {
+            return objectPrefix;
+        }
+
+        public void setObjectPrefix(String objectPrefix)
+        {
+            this.objectPrefix = objectPrefix;
+        }
+    }
+
+    public static class Model
+    {
+        private boolean enabled = false;
+
+        private String modelKey;
+
+        private String modelName;
+
+        private String baseUrl;
+
+        private String apiKey;
+
+        public boolean isEnabled()
+        {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled)
+        {
+            this.enabled = enabled;
+        }
+
+        public String getModelKey()
+        {
+            return modelKey;
+        }
+
+        public void setModelKey(String modelKey)
+        {
+            this.modelKey = modelKey;
+        }
+
+        public String getModelName()
+        {
+            return modelName;
+        }
+
+        public void setModelName(String modelName)
+        {
+            this.modelName = modelName;
+        }
+
+        public String getBaseUrl()
+        {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl)
+        {
+            this.baseUrl = baseUrl;
+        }
+
+        public String getApiKey()
+        {
+            return apiKey;
+        }
+
+        public void setApiKey(String apiKey)
+        {
+            this.apiKey = apiKey;
+        }
+    }
+
     public boolean isEnabled()
     {
         return enabled;
@@ -479,14 +875,14 @@ public class PresenceIngestProperties
         this.apiKey = apiKey;
     }
 
-    public Long getDefaultLocationId()
+    public Long getDefaultCameraId()
     {
-        return defaultLocationId;
+        return defaultCameraId;
     }
 
-    public void setDefaultLocationId(Long defaultLocationId)
+    public void setDefaultCameraId(Long defaultCameraId)
     {
-        this.defaultLocationId = defaultLocationId;
+        this.defaultCameraId = defaultCameraId;
     }
 
     public String getWorkspaceRoot()
@@ -677,6 +1073,26 @@ public class PresenceIngestProperties
     public void setLive(LiveIngest live)
     {
         this.live = live;
+    }
+
+    public ClipCapture getClip()
+    {
+        return clip;
+    }
+
+    public void setClip(ClipCapture clip)
+    {
+        this.clip = clip;
+    }
+
+    public AiAnalysis getAnalysis()
+    {
+        return analysis;
+    }
+
+    public void setAnalysis(AiAnalysis analysis)
+    {
+        this.analysis = analysis;
     }
 
     /**

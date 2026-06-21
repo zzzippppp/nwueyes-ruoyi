@@ -12,7 +12,7 @@ public interface ProfileMatchMapper
   FaceMatchCandidateVo searchTopFaceMatch(@Param("embedding") String embeddingLiteral,
       @Param("maxDistance") float maxDistance);
 
-  BodySessionMatchVo searchTopOpenSessionByBody(@Param("locationId") Long locationId,
+  BodySessionMatchVo searchTopOpenSessionByBody(@Param("cameraId") Long cameraId,
       @Param("embedding") String embeddingLiteral, @Param("maxDistance") float maxDistance);
 
   int insertFaceProfile(@Param("personId") Long personId, @Param("embedding") String embeddingLiteral,

@@ -1,4 +1,4 @@
-# YOLO 过线检测 + 拉流/回放（与 requirements-embedding.txt 分开安装）
+# YOLO live/replay dependencies.
 ultralytics>=8.0.0
 opencv-python>=4.8.0
 numpy>=1.24.0

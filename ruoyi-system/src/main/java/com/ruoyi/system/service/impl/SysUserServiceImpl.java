@@ -218,6 +218,28 @@ public class SysUserServiceImpl implements ISysUserService
     }
 
     /**
+     * 校验学工号是否唯一
+     *
+     * @param user 用户信息
+     * @return 结果
+     */
+    @Override
+    public boolean checkWorkNoUnique(SysUser user)
+    {
+        if (StringUtils.isEmpty(user.getWorkNo()))
+        {
+            return UserConstants.UNIQUE;
+        }
+        Long userId = StringUtils.isNull(user.getUserId()) ? -1L : user.getUserId();
+        SysUser info = userMapper.checkWorkNoUnique(user.getWorkNo());
+        if (StringUtils.isNotNull(info) && info.getUserId().longValue() != userId.longValue())
+        {
+            return UserConstants.NOT_UNIQUE;
+        }
+        return UserConstants.UNIQUE;
+    }
+
+    /**
      * 校验用户是否允许操作
      * 
      * @param user 用户信息

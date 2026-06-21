@@ -1,4 +1,4 @@
--- 清空 nwueyes 业务数据（保留 locations id=1 监控点位）
+-- 清空 nwueyes 业务数据（保留 camera id=1 默认摄像头）
 -- 用法: psql -U postgres -d nwueyes -f ruoyi/sql/scripts/cleanup_nwueyes_data.sql
 
 BEGIN;

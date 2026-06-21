@@ -17,31 +17,62 @@ BEGIN
     END IF;
 END $$;
 
--- ========== locations 监控点位 ==========
-CREATE TABLE IF NOT EXISTS locations (
-    id              BIGSERIAL PRIMARY KEY,
-    device_serial   VARCHAR(32) NOT NULL,
-    channel_no      SMALLINT NOT NULL DEFAULT 1,
-    name            VARCHAR(128) NOT NULL,
-    site_name       VARCHAR(128),
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT locations_device_serial_channel_no_key UNIQUE (device_serial, channel_no)
+-- ========== device_type / camera 监控设备 ==========
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'camera_online_status') THEN
+        CREATE TYPE camera_online_status AS ENUM ('online', 'offline');
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS device_type (
+    id          BIGSERIAL PRIMARY KEY,
+    type_code   VARCHAR(16) NOT NULL,
+    type_name   VARCHAR(32) NOT NULL,
+    remark      VARCHAR(256),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uk_device_type_code UNIQUE (type_code)
 );
+
+INSERT INTO device_type (type_code, type_name, remark)
+VALUES ('ipc', '网络摄像机', '默认设备类型')
+ON CONFLICT (type_code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS camera (
+    id               BIGSERIAL PRIMARY KEY,
+    device_code      VARCHAR(32) NOT NULL,
+    device_name      VARCHAR(64) NOT NULL,
+    type_id          BIGINT REFERENCES device_type(id) ON DELETE SET NULL,
+    install_location VARCHAR(128),
+    ip_addr          VARCHAR(64),
+    channel_no       INTEGER NOT NULL DEFAULT 1,
+    serial_no        VARCHAR(64) NOT NULL,
+    verify_code      VARCHAR(32) NOT NULL DEFAULT '',
+    online_status    camera_online_status NOT NULL DEFAULT 'offline',
+    line_y           INTEGER,
+    roi              VARCHAR(64),
+    ref_width        INTEGER NOT NULL DEFAULT 1920,
+    ref_height       INTEGER NOT NULL DEFAULT 1080,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uk_camera_device_code UNIQUE (device_code),
+    CONSTRAINT uk_camera_serial_channel UNIQUE (serial_no, channel_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_camera_type ON camera (type_id);
 
 -- ========== persons 人员档案 ==========
 CREATE TABLE IF NOT EXISTS persons (
     id              BIGSERIAL PRIMARY KEY,
     display_name    VARCHAR(128) NOT NULL,
     person_kind     person_kind NOT NULL DEFAULT 'stranger',
-    tags            TEXT[] NOT NULL DEFAULT '{}',
     note            VARCHAR(512),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_persons_kind ON persons (person_kind);
-CREATE INDEX IF NOT EXISTS idx_persons_tags ON persons USING gin (tags);
 
 -- ========== face_profiles / body_profiles 向量档案 ==========
 CREATE TABLE IF NOT EXISTS face_profiles (
@@ -49,8 +80,6 @@ CREATE TABLE IF NOT EXISTS face_profiles (
     person_id       BIGINT NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
     embedding       vector(512) NOT NULL,
     image_url       VARCHAR(512) NOT NULL,
-    library_file    VARCHAR(255),
-    is_primary      BOOLEAN NOT NULL DEFAULT TRUE,
     quality_score   REAL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -63,8 +92,6 @@ CREATE TABLE IF NOT EXISTS body_profiles (
     id              BIGSERIAL PRIMARY KEY,
     person_id       BIGINT NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
     image_url       VARCHAR(512) NOT NULL,
-    library_file    VARCHAR(255),
-    is_primary      BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     embedding       vector(512),
     quality_score   REAL
@@ -80,7 +107,7 @@ CREATE INDEX IF NOT EXISTS idx_body_profiles_embedding
 -- ========== presence_sessions 停留会话（看板「在场中」）==========
 CREATE TABLE IF NOT EXISTS presence_sessions (
     id                  BIGSERIAL PRIMARY KEY,
-    location_id         BIGINT NOT NULL REFERENCES locations(id),
+    camera_id         BIGINT NOT NULL REFERENCES camera(id),
     person_id           BIGINT REFERENCES persons(id) ON DELETE SET NULL,
     track_key           VARCHAR(96) NOT NULL,
     arrival_at          TIMESTAMPTZ NOT NULL,
@@ -88,21 +115,18 @@ CREATE TABLE IF NOT EXISTS presence_sessions (
     departure_at        TIMESTAMPTZ,
     dwell_seconds       INTEGER,
     status              session_status NOT NULL DEFAULT 'open',
-    id_state            VARCHAR(32),
     best_match_score    REAL,
     face_image_url      VARCHAR(512),
     body_image_url      VARCHAR(512),
-    enter_face_embedding vector(512),
     enter_body_embedding vector(512),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON COLUMN presence_sessions.enter_face_embedding IS '进门时刻人脸向量，512 维';
 COMMENT ON COLUMN presence_sessions.enter_body_embedding IS '进门时刻体态向量，出门比对用，512 维';
 
-CREATE INDEX IF NOT EXISTS idx_ps_location_time ON presence_sessions (location_id, arrival_at DESC);
-CREATE INDEX IF NOT EXISTS idx_ps_open ON presence_sessions (location_id, status)
+CREATE INDEX IF NOT EXISTS idx_ps_location_time ON presence_sessions (camera_id, arrival_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ps_open ON presence_sessions (camera_id, status)
     WHERE status = 'open';
 CREATE INDEX IF NOT EXISTS idx_ps_person_time ON presence_sessions (person_id, arrival_at DESC)
     WHERE person_id IS NOT NULL;
@@ -121,7 +145,7 @@ CREATE TABLE IF NOT EXISTS behavior_logs (
     event_time      TIMESTAMP NOT NULL,
     face_image_url  VARCHAR(512) NOT NULL DEFAULT '',
     body_image_url  VARCHAR(512) NOT NULL DEFAULT '',
-    location_id     BIGINT NOT NULL REFERENCES locations(id),
+    camera_id     BIGINT NOT NULL REFERENCES camera(id),
     person_id       BIGINT REFERENCES persons(id) ON DELETE SET NULL,
     track_key       VARCHAR(128) NOT NULL,
     session_id      BIGINT REFERENCES presence_sessions(id) ON DELETE SET NULL,
@@ -140,19 +164,20 @@ COMMENT ON COLUMN behavior_logs.body_match_score IS '出门体态匹配分（cos
 COMMENT ON COLUMN behavior_logs.quality_flag IS '抓拍质量：normal=达标, low=次优帧, missing=无图';
 
 CREATE INDEX IF NOT EXISTS idx_behavior_logs_event_time ON behavior_logs (event_time DESC);
-CREATE INDEX IF NOT EXISTS idx_behavior_logs_location_id ON behavior_logs (location_id);
+CREATE INDEX IF NOT EXISTS idx_behavior_logs_camera_id ON behavior_logs (camera_id);
 CREATE INDEX IF NOT EXISTS idx_behavior_logs_person_id ON behavior_logs (person_id);
 CREATE INDEX IF NOT EXISTS idx_behavior_logs_session_id ON behavior_logs (session_id);
 CREATE INDEX IF NOT EXISTS idx_behavior_logs_quality_flag ON behavior_logs (quality_flag);
 
--- ========== 默认监控点位 id=1（请改 device_serial）==========
-INSERT INTO locations (id, device_serial, channel_no, name, site_name, is_active)
-SELECT 1, 'CHANGE_ME_DEVICE_SERIAL', 1, '默认监控点位', '请在数据看板或本表修改', TRUE
-WHERE NOT EXISTS (SELECT 1 FROM locations WHERE id = 1);
+-- ========== 默认摄像头 id=1（请改 serial_no）==========
+INSERT INTO camera (id, device_code, device_name, type_id, install_location, channel_no, serial_no, online_status)
+SELECT 1, 'CAM-001', '默认监控点位', (SELECT id FROM device_type WHERE type_code = 'ipc' LIMIT 1),
+       '请在数据看板或本表修改', 1, 'CHANGE_ME_DEVICE_SERIAL', 'online'
+WHERE NOT EXISTS (SELECT 1 FROM camera WHERE id = 1);
 
 SELECT setval(
-    pg_get_serial_sequence('locations', 'id'),
-    GREATEST((SELECT COALESCE(MAX(id), 1) FROM locations), 1)
+    pg_get_serial_sequence('camera', 'id'),
+    GREATEST((SELECT COALESCE(MAX(id), 1) FROM camera), 1)
 );
 
 COMMIT;
