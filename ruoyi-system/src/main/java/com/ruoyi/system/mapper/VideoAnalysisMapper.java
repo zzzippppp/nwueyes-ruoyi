@@ -51,14 +51,14 @@ public interface VideoAnalysisMapper
             @Param("errorMessage") String errorMessage);
 
     int updateBehaviorLogClipByTrack(@Param("trackKey") String trackKey,
-            @Param("locationId") Long locationId,
+            @Param("cameraId") Long cameraId,
             @Param("sceneGroupId") String sceneGroupId,
             @Param("clipId") Long clipId,
             @Param("analysisStatus") String analysisStatus,
             @Param("startTime") Date startTime,
             @Param("endTime") Date endTime);
 
-    int updateBehaviorLogSceneByRange(@Param("locationId") Long locationId,
+    int updateBehaviorLogSceneByRange(@Param("cameraId") Long cameraId,
             @Param("sceneGroupId") String sceneGroupId,
             @Param("analysisStatus") String analysisStatus,
             @Param("startTime") Date startTime,

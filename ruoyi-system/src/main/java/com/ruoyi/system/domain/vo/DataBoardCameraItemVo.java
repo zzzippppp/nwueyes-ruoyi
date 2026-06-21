@@ -1,13 +1,13 @@
 package com.ruoyi.system.domain.vo;
 
 /**
- * 看板按地点统计项
+ * 看板按摄像头统计项
  */
-public class DataBoardLocationItemVo
+public class DataBoardCameraItemVo
 {
-    private Long locationId;
+    private Long cameraId;
 
-    private String locationName;
+    private String deviceName;
 
     private String deviceSerial;
 
@@ -19,24 +19,24 @@ public class DataBoardLocationItemVo
 
     private Long openCount;
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
-    public void setLocationId(Long locationId)
+    public void setCameraId(Long cameraId)
     {
-        this.locationId = locationId;
+        this.cameraId = cameraId;
     }
 
-    public String getLocationName()
+    public String getDeviceName()
     {
-        return locationName;
+        return deviceName;
     }
 
-    public void setLocationName(String locationName)
+    public void setDeviceName(String deviceName)
     {
-        this.locationName = locationName;
+        this.deviceName = deviceName;
     }
 
     public String getDeviceSerial()

@@ -25,9 +25,9 @@ public class PresenceIngestProperties
     private String apiKey;
 
     /**
-     * 默认点位（请求未传 locationId 时使用）
+     * 默认点位（请求未传 cameraId 时使用）
      */
-    private Long defaultLocationId;
+    private Long defaultCameraId;
 
     /**
      * 回放脚本执行目录（项目根）
@@ -175,8 +175,8 @@ public class PresenceIngestProperties
         /** 公网云转发协议：4=FLV（OpenCV 更稳），2=HLS */
         private int ezvizCloudProtocol = 4;
 
-        /** 公网清晰度：2=子码流（连流快），1=主码流（画质高、首帧慢） */
-        private int ezvizCloudQuality = 2;
+        /** 公网清晰度：固定 1=主码流（2880×1620 等）；不再使用子码流 */
+        private int ezvizCloudQuality = 1;
 
         /** 可选：完整 RTSP 地址，配置后优先于自动拼接 */
         private String lanRtspUrl = "";
@@ -875,14 +875,14 @@ public class PresenceIngestProperties
         this.apiKey = apiKey;
     }
 
-    public Long getDefaultLocationId()
+    public Long getDefaultCameraId()
     {
-        return defaultLocationId;
+        return defaultCameraId;
     }
 
-    public void setDefaultLocationId(Long defaultLocationId)
+    public void setDefaultCameraId(Long defaultCameraId)
     {
-        this.defaultLocationId = defaultLocationId;
+        this.defaultCameraId = defaultCameraId;
     }
 
     public String getWorkspaceRoot()

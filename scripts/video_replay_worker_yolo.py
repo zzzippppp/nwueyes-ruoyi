@@ -78,7 +78,7 @@ def main():
     parser.add_argument("--profile-root", default="D:/ruoyi/uploadPath")
     parser.add_argument("--ingest-base-url", default="http://localhost:8080")
     parser.add_argument("--ingest-key", default="local-presence-key")
-    parser.add_argument("--location-id", type=int, default=1)
+    parser.add_argument("--camera-id", type=int, default=1)
     parser.add_argument("--line-y", type=int, default=520)
     parser.add_argument("--roi", default="620,170,1290,760", help="x1,y1,x2,y2")
     parser.add_argument("--model", default="yolov8n.pt")
@@ -191,7 +191,7 @@ def main():
                     door_gate.commit(tid_i, event_type)
                     payload = {
                         "eventType": event_type,
-                        "locationId": args.location_id,
+                        "cameraId": args.camera_id,
                         "trackKey": track_key,
                         "eventTime": iso_from_base(base_time, frame_idx, fps),
                         "bestMatchScore": float(confs[idx]) if confs is not None else None,

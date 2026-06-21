@@ -1,7 +1,7 @@
 package com.ruoyi.system.service;
 
 import org.springframework.web.multipart.MultipartFile;
-import com.ruoyi.system.domain.bo.DataBoardLocationUpdateBo;
+import com.ruoyi.system.domain.bo.DataBoardCameraUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardPersonUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardSessionUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardStrangerUpdateBo;
@@ -20,8 +20,8 @@ public interface IDataBoardManageService
 
     boolean deleteStranger(String trackKey);
 
-    boolean updateLocation(Long locationId, DataBoardLocationUpdateBo bo);
+    boolean updateCamera(Long cameraId, DataBoardCameraUpdateBo bo);
 
-    String uploadFaceAndCreatePerson(String displayName, String personKind, String tagsText, String note, MultipartFile avatarFile)
+    String uploadFaceAndCreatePerson(String displayName, String personKind, String note, MultipartFile avatarFile)
             throws Exception;
 }

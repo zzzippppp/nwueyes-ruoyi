@@ -13,15 +13,15 @@ DELETE FROM behavior_logs WHERE source = 'demo';
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM locations WHERE id = 1) THEN
-        RAISE EXCEPTION 'locations 表无 id=1，请先配置监控点位';
+    IF NOT EXISTS (SELECT 1 FROM camera WHERE id = 1) THEN
+        RAISE EXCEPTION 'camera 表无 id=1，请先配置摄像头';
     END IF;
 END $$;
 
 INSERT INTO behavior_logs (
     display_name, event_type, event_time,
     face_image_url, body_image_url,
-    location_id, person_id, track_key, session_id, person_kind, source, created_at
+    camera_id, person_id, track_key, session_id, person_kind, source, created_at
 )
 SELECT
     CASE WHEN p.id IS NOT NULL AND p.person_kind = 'known' THEN p.display_name ELSE '未登记-' || v.track_key END,

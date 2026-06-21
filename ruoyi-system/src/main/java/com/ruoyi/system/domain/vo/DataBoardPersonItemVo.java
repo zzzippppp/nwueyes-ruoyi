@@ -14,7 +14,7 @@ public class DataBoardPersonItemVo
 
     private String personKind;
 
-    private String tagsText;
+    private String employeeNo;
 
     private String note;
 
@@ -55,14 +55,14 @@ public class DataBoardPersonItemVo
         this.personKind = personKind;
     }
 
-    public String getTagsText()
+    public String getEmployeeNo()
     {
-        return tagsText;
+        return employeeNo;
     }
 
-    public void setTagsText(String tagsText)
+    public void setEmployeeNo(String employeeNo)
     {
-        this.tagsText = tagsText;
+        this.employeeNo = employeeNo;
     }
 
     public String getNote()

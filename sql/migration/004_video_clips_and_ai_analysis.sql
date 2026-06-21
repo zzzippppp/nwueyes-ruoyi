@@ -1,5 +1,6 @@
 -- 人员会话视频片段、多人场景组与多模型分析结果
--- 用法: psql -U postgres -d nwueyes -f sql/migration/003_video_clips_and_ai_analysis.sql
+-- 用法: psql -U postgres -d nwueyes -f ruoyi/sql/migration/004_video_clips_and_ai_analysis.sql
+-- 前置: 001_core_business.sql、003_fk_on_delete_set_null.sql（可选）
 
 BEGIN;
 
@@ -9,7 +10,7 @@ CREATE TABLE IF NOT EXISTS presence_video_clips (
     clip_type       VARCHAR(32) NOT NULL CHECK (clip_type IN ('person_session', 'scene_group')),
     session_id      BIGINT REFERENCES presence_sessions(id),
     scene_group_id  VARCHAR(96),
-    location_id     BIGINT NOT NULL REFERENCES locations(id),
+    camera_id     BIGINT NOT NULL REFERENCES camera(id),
     track_key       VARCHAR(128),
     start_time      TIMESTAMP NOT NULL,
     end_time        TIMESTAMP NOT NULL,

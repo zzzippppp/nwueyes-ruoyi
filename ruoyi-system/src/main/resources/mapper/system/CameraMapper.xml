@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.CameraMapper">
+
+    <select id="selectById" resultType="com.ruoyi.system.domain.vo.CameraConfigVo">
+        SELECT
+            id,
+            device_code AS deviceCode,
+            device_name AS deviceName,
+            type_id AS typeId,
+            install_location AS installLocation,
+            ip_addr AS ipAddr,
+            serial_no AS serialNo,
+            channel_no AS channelNo,
+            verify_code AS verifyCode,
+            online_status::text AS onlineStatus,
+            line_y AS lineY,
+            roi,
+            ref_width AS refWidth,
+            ref_height AS refHeight
+        FROM camera
+        WHERE id = #{cameraId}
+    </select>
+
+    <select id="selectIdBySerial" resultType="java.lang.Long">
+        SELECT id
+        FROM camera
+        WHERE serial_no = #{serialNo}
+          AND channel_no = #{channelNo}
+        LIMIT 1
+    </select>
+
+    <insert id="insertCamera">
+        INSERT INTO camera (
+            device_code, serial_no, channel_no, device_name, type_id,
+            online_status, created_at, updated_at
+        ) VALUES (
+            #{deviceCode}, #{serialNo}, #{channelNo}, #{deviceName}, #{typeId},
+            'offline', NOW(), NOW()
+        )
+    </insert>
+
+    <update id="updateDoorConfig">
+        UPDATE camera
+        SET line_y = COALESCE(#{lineY}, line_y),
+            roi = COALESCE(#{roi}, roi),
+            updated_at = NOW()
+        WHERE id = #{cameraId}
+    </update>
+
+    <update id="updateCamera">
+        UPDATE camera
+        SET device_name = #{deviceName},
+            online_status = CAST(#{onlineStatus} AS camera_online_status),
+            updated_at = NOW()
+        WHERE id = #{cameraId}
+    </update>
+
+</mapper>

@@ -98,7 +98,7 @@ def main():
     parser.add_argument("--profile-root", default="D:/ruoyi/uploadPath")
     parser.add_argument("--ingest-base-url", default="http://localhost:8080")
     parser.add_argument("--ingest-key", default="local-presence-key")
-    parser.add_argument("--location-id", type=int, default=1)
+    parser.add_argument("--camera-id", type=int, default=1)
     parser.add_argument("--line-y", type=int, default=520, help="过线 y 坐标（向下=enter，向上=exit）")
     parser.add_argument("--roi", default="", help="x1,y1,x2,y2")
     parser.add_argument("--min-area", type=int, default=1600)
@@ -203,7 +203,7 @@ def main():
             event_type = "enter" if crossed_down else "exit"
             payload = {
                 "eventType": event_type,
-                "locationId": args.location_id,
+                "cameraId": args.camera_id,
                 "trackKey": f"{args.track_prefix}_{tid}",
                 "eventTime": iso_from_base(base_time, frame_idx, fps),
             }

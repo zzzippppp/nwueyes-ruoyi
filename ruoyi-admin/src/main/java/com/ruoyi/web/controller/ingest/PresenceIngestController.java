@@ -23,6 +23,7 @@ import com.ruoyi.system.service.IPresenceIngestService;
 import com.ruoyi.system.service.IPresenceVideoClipService;
 import com.ruoyi.system.service.IPresenceReplayService;
 import com.ruoyi.system.domain.vo.AnalyzeEmbedResultVo;
+import com.ruoyi.system.domain.vo.AnalyzeEventMatchResultVo;
 import com.ruoyi.system.domain.vo.PresenceDoorConfigVo;
 import java.util.HashMap;
 import java.util.Map;
@@ -67,9 +68,9 @@ public class PresenceIngestController
         {
             return AjaxResult.error("ingest key 无效");
         }
-        if (bo.getLocationId() == null)
+        if (bo.getCameraId() == null)
         {
-            bo.setLocationId(ingestProperties.getDefaultLocationId());
+            bo.setCameraId(ingestProperties.getDefaultCameraId());
         }
 
         if (Boolean.TRUE.equals(bo.getAsync()))
@@ -99,9 +100,9 @@ public class PresenceIngestController
         {
             return AjaxResult.error("ingest key invalid");
         }
-        if (bo.getLocationId() == null)
+        if (bo.getCameraId() == null)
         {
-            bo.setLocationId(ingestProperties.getDefaultLocationId());
+            bo.setCameraId(ingestProperties.getDefaultCameraId());
         }
         return AjaxResult.success(presenceVideoClipService.ingestClip(bo));
     }
@@ -152,6 +153,16 @@ public class PresenceIngestController
     public AjaxResult embedAnalyzeCaptures(@PathVariable("taskId") String taskId)
     {
         AnalyzeEmbedResultVo result = presenceEmbedService.embedAnalyzeCaptures(taskId);
+        return AjaxResult.success(result);
+    }
+
+    /**
+     * 视频分析过线事件与人脸/体态库匹配预览（不写库）。
+     */
+    @PostMapping("/analyze/match/{taskId}")
+    public AjaxResult matchAnalyzeEvents(@PathVariable("taskId") String taskId)
+    {
+        AnalyzeEventMatchResultVo result = presenceEmbedService.matchAnalyzeEvents(taskId);
         return AjaxResult.success(result);
     }
 }

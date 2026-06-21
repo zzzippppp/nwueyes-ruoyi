@@ -11,17 +11,23 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.config.PresenceIngestProperties;
 import com.ruoyi.system.domain.vo.AnalyzeEmbedResultVo;
+import com.ruoyi.system.domain.vo.AnalyzeEventMatchItemVo;
+import com.ruoyi.system.domain.vo.AnalyzeEventMatchResultVo;
 import com.ruoyi.system.domain.vo.CaptureTrackEmbedVo;
 import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
 import com.ruoyi.system.domain.vo.PresenceReplayTaskVo;
+import com.ruoyi.system.domain.vo.PresenceTrackMatchPreviewVo;
+import com.ruoyi.system.domain.vo.VirtualOpenSessionVo;
 import com.ruoyi.system.service.IPresenceEmbedService;
 import com.ruoyi.system.service.IPresenceReplayService;
+import com.ruoyi.system.service.IPresenceTrackService;
 import com.ruoyi.system.storage.PresenceStoragePaths;
 
 @Service
@@ -37,6 +43,122 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
 
     @Autowired
     private PresenceStoragePaths storagePaths;
+
+    @Autowired
+    @Lazy
+    private IPresenceTrackService presenceTrackService;
+
+    @Override
+    public AnalyzeEventMatchResultVo matchAnalyzeEvents(String taskId)
+    {
+        if (StringUtils.isEmpty(taskId))
+        {
+            throw new IllegalArgumentException("taskId 不能为空");
+        }
+        PresenceReplayTaskVo task = presenceReplayService.getTask(taskId);
+        if (task == null)
+        {
+            throw new IllegalArgumentException("分析任务不存在: " + taskId);
+        }
+        if (!"success".equals(task.getStatus()))
+        {
+            throw new IllegalStateException("分析任务未成功完成，无法匹配");
+        }
+        if (StringUtils.isEmpty(task.getResultJson()))
+        {
+            throw new IllegalStateException("分析结果为空");
+        }
+
+        JsonNode root;
+        try
+        {
+            root = objectMapper.readTree(task.getResultJson());
+        }
+        catch (Exception ex)
+        {
+            throw new IllegalStateException("解析分析结果失败: " + ex.getMessage());
+        }
+
+        JsonNode eventsNode = root.path("events");
+        if (!eventsNode.isArray() || eventsNode.isEmpty())
+        {
+            throw new IllegalStateException("分析结果中没有过线事件");
+        }
+
+        List<VirtualOpenSessionVo> openSessions = new ArrayList<>();
+        List<AnalyzeEventMatchItemVo> rows = new ArrayList<>();
+        int matchedCount = 0;
+
+        for (Iterator<JsonNode> it = eventsNode.elements(); it.hasNext();)
+        {
+            JsonNode event = it.next();
+            String eventType = event.path("eventType").asText("");
+            if (!"enter".equals(eventType) && !"exit".equals(eventType))
+            {
+                continue;
+            }
+
+            AnalyzeEventMatchItemVo row = new AnalyzeEventMatchItemVo();
+            row.setFrame(event.path("frame").asInt(0));
+            row.setTimeSec(event.path("timeSec").asDouble(0.0));
+            row.setTrackId(event.path("trackId").asInt(0));
+            row.setTrackKey(event.path("trackKey").asText("yolo_" + row.getTrackId()));
+            row.setEventType(eventType);
+            row.setFaceImageUrl(event.path("faceImageUrl").asText(""));
+            row.setBodyImageUrl(event.path("bodyImageUrl").asText(""));
+            row.setSnapshotUrl(event.path("snapshotUrl").asText(""));
+            row.setQualityFlag(event.path("qualityFlag").asText(""));
+
+            String trackKey = row.getTrackKey();
+            if ("enter".equals(eventType))
+            {
+                PresenceTrackMatchPreviewVo preview = presenceTrackService.previewEnterMatch(
+                        trackKey, row.getFaceImageUrl(), row.getBodyImageUrl());
+                row.setDisplayName(preview.getDisplayName());
+                row.setPersonId(preview.getPersonId());
+                row.setPersonKind(preview.getPersonKind());
+                row.setMatched(preview.isMatched());
+                row.setFaceMatchScore(preview.getFaceMatchScore());
+
+                VirtualOpenSessionVo session = new VirtualOpenSessionVo();
+                session.setTrackKey(trackKey);
+                session.setPersonId(preview.getPersonId());
+                session.setDisplayName(preview.getDisplayName());
+                session.setPersonKind(preview.getPersonKind());
+                session.setEnterBodyEmbedding(preview.getBodyEmbedding());
+                openSessions.add(session);
+            }
+            else
+            {
+                PresenceTrackMatchPreviewVo preview = presenceTrackService.previewExitMatch(
+                        trackKey, row.getBodyImageUrl(), openSessions);
+                row.setDisplayName(preview.getDisplayName());
+                row.setPersonId(preview.getPersonId());
+                row.setPersonKind(preview.getPersonKind());
+                row.setMatched(preview.isMatched());
+                row.setBodyMatchScore(preview.getBodyMatchScore());
+
+                if (preview.isMatched() && !StringUtils.isEmpty(preview.getMatchedSessionTrackKey()))
+                {
+                    String matchedKey = preview.getMatchedSessionTrackKey();
+                    openSessions.removeIf(s -> matchedKey.equals(s.getTrackKey()));
+                }
+            }
+
+            if (row.isMatched())
+            {
+                matchedCount++;
+            }
+            rows.add(row);
+        }
+
+        AnalyzeEventMatchResultVo result = new AnalyzeEventMatchResultVo();
+        result.setTaskId(taskId);
+        result.setEventCount(rows.size());
+        result.setMatchedCount(matchedCount);
+        result.setEvents(rows);
+        return result;
+    }
 
     @Override
     public AnalyzeEmbedResultVo embedAnalyzeCaptures(String taskId)
@@ -70,9 +192,10 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
         }
 
         JsonNode tracksNode = root.path("captureTracks");
-        if (!tracksNode.isArray() || tracksNode.isEmpty())
+        JsonNode eventsNode = root.path("events");
+        if ((!tracksNode.isArray() || tracksNode.isEmpty()) && (!eventsNode.isArray() || eventsNode.isEmpty()))
         {
-            throw new IllegalStateException("分析结果中没有抓拍数据 captureTracks");
+            throw new IllegalStateException("分析结果中没有抓拍数据");
         }
 
         AnalyzeEmbedResultVo result = new AnalyzeEmbedResultVo();
@@ -81,37 +204,52 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
         int faceOk = 0;
         int bodyOk = 0;
 
-        for (Iterator<JsonNode> it = tracksNode.elements(); it.hasNext();)
+        if (tracksNode.isArray() && !tracksNode.isEmpty())
         {
-            JsonNode track = it.next();
-            CaptureTrackEmbedVo row = new CaptureTrackEmbedVo();
-            row.setTrackId(track.path("trackId").asInt(0));
-            row.setTrackKey(track.path("trackKey").asText(""));
-            row.setFaceImageUrl(track.path("faceImageUrl").asText(""));
-            row.setBodyImageUrl(track.path("bodyImageUrl").asText(""));
-            if (track.has("faceScore") && !track.path("faceScore").isNull())
+            for (Iterator<JsonNode> it = tracksNode.elements(); it.hasNext();)
             {
-                row.setFaceScore(track.path("faceScore").asDouble());
+                JsonNode track = it.next();
+                CaptureTrackEmbedVo row = buildCaptureTrackEmbed(track);
+                if (Boolean.TRUE.equals(row.getFaceEmbedding().getOk()))
+                {
+                    faceOk++;
+                }
+                if (Boolean.TRUE.equals(row.getBodyEmbedding().getOk()))
+                {
+                    bodyOk++;
+                }
+                rows.add(row);
             }
-            if (track.has("bodyScore") && !track.path("bodyScore").isNull())
+        }
+        else
+        {
+            for (Iterator<JsonNode> it = eventsNode.elements(); it.hasNext();)
             {
-                row.setBodyScore(track.path("bodyScore").asDouble());
+                JsonNode event = it.next();
+                String faceUrl = event.path("faceImageUrl").asText("");
+                String bodyUrl = event.path("bodyImageUrl").asText("");
+                if (StringUtils.isEmpty(faceUrl) && StringUtils.isEmpty(bodyUrl))
+                {
+                    continue;
+                }
+                CaptureTrackEmbedVo row = new CaptureTrackEmbedVo();
+                row.setTrackId(event.path("trackId").asInt(0));
+                row.setTrackKey(event.path("trackKey").asText("yolo_" + row.getTrackId()));
+                row.setFaceImageUrl(faceUrl);
+                row.setBodyImageUrl(bodyUrl);
+                row.setSampledFrames(event.path("captureSamples").asInt(0));
+                row.setFaceEmbedding(embedKind("face", faceUrl));
+                row.setBodyEmbedding(embedKind("body", bodyUrl));
+                if (Boolean.TRUE.equals(row.getFaceEmbedding().getOk()))
+                {
+                    faceOk++;
+                }
+                if (Boolean.TRUE.equals(row.getBodyEmbedding().getOk()))
+                {
+                    bodyOk++;
+                }
+                rows.add(row);
             }
-            row.setSampledFrames(track.path("sampledFrames").asInt(0));
-
-            EmbeddingVectorVo faceEmbed = embedKind("face", row.getFaceImageUrl());
-            EmbeddingVectorVo bodyEmbed = embedKind("body", row.getBodyImageUrl());
-            row.setFaceEmbedding(faceEmbed);
-            row.setBodyEmbedding(bodyEmbed);
-            if (Boolean.TRUE.equals(faceEmbed.getOk()))
-            {
-                faceOk++;
-            }
-            if (Boolean.TRUE.equals(bodyEmbed.getOk()))
-            {
-                bodyOk++;
-            }
-            rows.add(row);
         }
 
         result.setTracks(rows);
@@ -119,6 +257,27 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
         result.setFaceOkCount(faceOk);
         result.setBodyOkCount(bodyOk);
         return result;
+    }
+
+    private CaptureTrackEmbedVo buildCaptureTrackEmbed(JsonNode track)
+    {
+        CaptureTrackEmbedVo row = new CaptureTrackEmbedVo();
+        row.setTrackId(track.path("trackId").asInt(0));
+        row.setTrackKey(track.path("trackKey").asText(""));
+        row.setFaceImageUrl(track.path("faceImageUrl").asText(""));
+        row.setBodyImageUrl(track.path("bodyImageUrl").asText(""));
+        if (track.has("faceScore") && !track.path("faceScore").isNull())
+        {
+            row.setFaceScore(track.path("faceScore").asDouble());
+        }
+        if (track.has("bodyScore") && !track.path("bodyScore").isNull())
+        {
+            row.setBodyScore(track.path("bodyScore").asDouble());
+        }
+        row.setSampledFrames(track.path("sampledFrames").asInt(0));
+        row.setFaceEmbedding(embedKind("face", row.getFaceImageUrl()));
+        row.setBodyEmbedding(embedKind("body", row.getBodyImageUrl()));
+        return row;
     }
 
     @Override

@@ -10,7 +10,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             clip_type,
             session_id,
             scene_group_id,
-            location_id,
+            camera_id,
             track_key,
             start_time,
             end_time,
@@ -30,7 +30,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             #{clipType},
             #{sessionId},
             #{sceneGroupId},
-            #{locationId},
+            #{cameraId},
             #{trackKey},
             #{startTime},
             #{endTime},
@@ -49,7 +49,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         ON CONFLICT (clip_key) DO UPDATE SET
             session_id = COALESCE(EXCLUDED.session_id, presence_video_clips.session_id),
             scene_group_id = COALESCE(EXCLUDED.scene_group_id, presence_video_clips.scene_group_id),
-            location_id = EXCLUDED.location_id,
+            camera_id = EXCLUDED.camera_id,
             track_key = COALESCE(EXCLUDED.track_key, presence_video_clips.track_key),
             start_time = EXCLUDED.start_time,
             end_time = EXCLUDED.end_time,
@@ -94,7 +94,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             clip_type AS clipType,
             session_id AS sessionId,
             scene_group_id AS sceneGroupId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             track_key AS trackKey,
             start_time AS startTime,
             end_time AS endTime,
@@ -118,7 +118,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             clip_type AS clipType,
             session_id AS sessionId,
             scene_group_id AS sceneGroupId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             track_key AS trackKey,
             start_time AS startTime,
             end_time AS endTime,
@@ -145,7 +145,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             clip_type AS clipType,
             session_id AS sessionId,
             scene_group_id AS sceneGroupId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             track_key AS trackKey,
             start_time AS startTime,
             end_time AS endTime,
@@ -172,7 +172,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             clip_type AS clipType,
             session_id AS sessionId,
             scene_group_id AS sceneGroupId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             track_key AS trackKey,
             start_time AS startTime,
             end_time AS endTime,
@@ -266,7 +266,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             analysis_status = #{analysisStatus}
         WHERE source = 'live'
           AND track_key = #{trackKey}
-          AND location_id = #{locationId}
+          AND camera_id = #{cameraId}
           AND event_time &gt;= (CAST(#{startTime,jdbcType=TIMESTAMP} AS timestamp) - INTERVAL '10 seconds')
           AND event_time &lt;= (CAST(#{endTime,jdbcType=TIMESTAMP} AS timestamp) + INTERVAL '10 seconds')
     </update>
@@ -276,7 +276,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SET scene_group_id = #{sceneGroupId},
             analysis_status = COALESCE(analysis_status, #{analysisStatus})
         WHERE source = 'live'
-          AND location_id = #{locationId}
+          AND camera_id = #{cameraId}
           AND event_time &gt;= (CAST(#{startTime,jdbcType=TIMESTAMP} AS timestamp) - INTERVAL '10 seconds')
           AND event_time &lt;= (CAST(#{endTime,jdbcType=TIMESTAMP} AS timestamp) + INTERVAL '10 seconds')
     </update>

@@ -1,16 +1,16 @@
 package com.ruoyi.system.domain.bo;
 
 /**
- * 陌生人研判编辑请求
+ * 陌生人转在案 / 合并请求
  */
 public class DataBoardStrangerUpdateBo
 {
     private String displayName;
 
-    private String tagsText;
+    private String employeeNo;
 
-    /** stranger 或 known */
-    private String identityType;
+    /** student 或 staff */
+    private String personType;
 
     public String getDisplayName()
     {
@@ -22,23 +22,23 @@ public class DataBoardStrangerUpdateBo
         this.displayName = displayName;
     }
 
-    public String getTagsText()
+    public String getEmployeeNo()
     {
-        return tagsText;
+        return employeeNo;
     }
 
-    public void setTagsText(String tagsText)
+    public void setEmployeeNo(String employeeNo)
     {
-        this.tagsText = tagsText;
+        this.employeeNo = employeeNo;
     }
 
-    public String getIdentityType()
+    public String getPersonType()
     {
-        return identityType;
+        return personType;
     }
 
-    public void setIdentityType(String identityType)
+    public void setPersonType(String personType)
     {
-        this.identityType = identityType;
+        this.personType = personType;
     }
 }

@@ -7,7 +7,7 @@ public class PresenceEventIngestBo
 {
     private String eventType;
 
-    private Long locationId;
+    private Long cameraId;
 
     private String trackKey;
 
@@ -21,12 +21,17 @@ public class PresenceEventIngestBo
 
     private String bodyImageUrl;
 
+    private String snapshotUrl;
+
     private Float bestMatchScore;
 
     /** 为 true 时仅入队异步处理，立即返回 */
     private Boolean async;
 
     private String qualityFlag;
+
+    /** 行为分析（自然语言，可选） */
+    private String behaviorAnalysis;
 
     public String getEventType()
     {
@@ -38,14 +43,14 @@ public class PresenceEventIngestBo
         this.eventType = eventType;
     }
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
-    public void setLocationId(Long locationId)
+    public void setCameraId(Long cameraId)
     {
-        this.locationId = locationId;
+        this.cameraId = cameraId;
     }
 
     public String getTrackKey()
@@ -108,6 +113,16 @@ public class PresenceEventIngestBo
         this.bodyImageUrl = bodyImageUrl;
     }
 
+    public String getSnapshotUrl()
+    {
+        return snapshotUrl;
+    }
+
+    public void setSnapshotUrl(String snapshotUrl)
+    {
+        this.snapshotUrl = snapshotUrl;
+    }
+
     public Float getBestMatchScore()
     {
         return bestMatchScore;
@@ -136,5 +151,15 @@ public class PresenceEventIngestBo
     public void setQualityFlag(String qualityFlag)
     {
         this.qualityFlag = qualityFlag;
+    }
+
+    public String getBehaviorAnalysis()
+    {
+        return behaviorAnalysis;
+    }
+
+    public void setBehaviorAnalysis(String behaviorAnalysis)
+    {
+        this.behaviorAnalysis = behaviorAnalysis;
     }
 }

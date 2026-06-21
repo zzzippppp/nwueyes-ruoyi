@@ -66,7 +66,8 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     }
 
     @Override
-    public String resolveAnalyzeStreamUrl(String deviceSerial, Integer channelNo, String streamMode, String validCode)
+    public String resolveAnalyzeStreamUrl(String deviceSerial, Integer channelNo, String streamMode, String validCode,
+            String localIpOverride)
     {
         if (StringUtils.isEmpty(deviceSerial))
         {
@@ -80,7 +81,7 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equalsIgnoreCase(streamMode);
         if (lanRtsp)
         {
-            return resolveLanRtspUrl(deviceSerial, validCode, channel);
+            return resolveLanRtspUrl(deviceSerial, validCode, channel, localIpOverride);
         }
         int protocol = ingestProperties.getLive().getEzvizCloudProtocol();
 
@@ -91,7 +92,8 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         params.put("protocol", String.valueOf(protocol));
         params.put("type", "1");
         params.put("expireTime", String.valueOf(ingestProperties.getLive().getEzvizStreamExpireSec()));
-        params.put("quality", String.valueOf(ingestProperties.getLive().getEzvizCloudQuality()));
+        // 固定主码流，不再请求子码流
+        params.put("quality", "1");
         params.put("supportH265", "0");
         if (!StringUtils.isEmpty(validCode))
         {
@@ -104,7 +106,8 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         {
             throw new ServiceException("萤石直播地址响应缺少 data");
         }
-        String url = firstNotBlank(data.getString("url"), data.getString("hdUrl"), data.getString("rtmpUrl"));
+        // 主码流高清地址通常在 hdUrl；优先 hdUrl 避免落到低清预览 url
+        String url = firstNotBlank(data.getString("hdUrl"), data.getString("url"), data.getString("rtmpUrl"));
         if (StringUtils.isEmpty(url))
         {
             throw new ServiceException(lanRtsp ? "萤石未返回 RTSP 地址，请确认设备支持局域网 RTSP"
@@ -122,12 +125,17 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     /**
      * 局域网 RTSP：萤石云取流 API 仅支持 protocol 1~4，RTSP 需直连摄像头局域网地址。
      */
-    private String resolveLanRtspUrl(String deviceSerial, String validCode, int channelNo)
+    private String resolveLanRtspUrl(String deviceSerial, String validCode, int channelNo, String localIpOverride)
     {
         PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
         if (!StringUtils.isEmpty(live.getLanRtspUrl()))
         {
-            return live.getLanRtspUrl().trim();
+            return resolveConfiguredLanRtspUrl(live.getLanRtspUrl().trim(), validCode);
+        }
+
+        if (!StringUtils.isEmpty(localIpOverride))
+        {
+            return buildLanRtspUrl(localIpOverride.trim(), validCode, channelNo, live);
         }
 
         Map<String, String> infoParams = new LinkedHashMap<String, String>();
@@ -148,22 +156,77 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         String localAddress = firstNotBlank(data.getString("localAddress"), data.getString("localIp"));
         if (StringUtils.isEmpty(localAddress))
         {
-            throw new ServiceException("设备未上报局域网 IP，请确认摄像头在线且与识别服务器同网，或改用公网云转发");
+            throw new ServiceException("设备未上报局域网 IP，请确认摄像头在线且与识别服务器同网，或在设备信息中填写 IP 后重试");
         }
 
-        boolean encrypted = resolveDeviceEncrypted(data);
+        return buildLanRtspUrl(localAddress, validCode, channelNo, live);
+    }
+
+    private String buildLanRtspUrl(String localAddress, String validCode, int channelNo,
+            PresenceIngestProperties.LiveIngest live)
+    {
         String password = StringUtils.nvl(validCode, "");
-        if (encrypted && StringUtils.isEmpty(password))
+        if (StringUtils.isEmpty(password))
         {
-            throw new ServiceException("设备已开启视频加密，局域网 RTSP 需填写验证码");
+            throw new ServiceException("局域网 RTSP 需填写设备验证码（机身底座 6 位字母），作为 admin 的 RTSP 密码");
         }
 
         String username = StringUtils.nvl(live.getLanRtspUsername(), "admin");
         int port = live.getLanRtspPort() > 0 ? live.getLanRtspPort() : 554;
         String streamPath = resolveLanRtspStreamPath(live.getLanRtspStreamPath(), channelNo);
-        String userInfo = StringUtils.isEmpty(password) ? encode(username)
-                : encode(username) + ":" + encode(password);
+        String userInfo = encode(username) + ":" + encode(password);
         return "rtsp://" + userInfo + "@" + localAddress + ":" + port + streamPath;
+    }
+
+    /**
+     * 配置项 lanRtspUrl 若未含密码，自动注入前端传入的设备验证码。
+     */
+    private String resolveConfiguredLanRtspUrl(String configuredUrl, String validCode)
+    {
+        if (rtspUrlHasPassword(configuredUrl))
+        {
+            return configuredUrl;
+        }
+        if (StringUtils.isEmpty(validCode))
+        {
+            throw new ServiceException("局域网 RTSP 需填写设备验证码（机身底座 6 位字母），作为 admin 的 RTSP 密码");
+        }
+        return injectRtspPassword(configuredUrl, validCode.trim());
+    }
+
+    private boolean rtspUrlHasPassword(String rtspUrl)
+    {
+        int scheme = rtspUrl.indexOf("://");
+        if (scheme < 0)
+        {
+            return false;
+        }
+        String rest = rtspUrl.substring(scheme + 3);
+        int at = rest.indexOf('@');
+        if (at <= 0)
+        {
+            return false;
+        }
+        return rest.substring(0, at).contains(":");
+    }
+
+    private String injectRtspPassword(String rtspUrl, String password)
+    {
+        int scheme = rtspUrl.indexOf("://");
+        if (scheme < 0)
+        {
+            return rtspUrl;
+        }
+        String prefix = rtspUrl.substring(0, scheme + 3);
+        String rest = rtspUrl.substring(scheme + 3);
+        int at = rest.indexOf('@');
+        String username = at > 0 ? rest.substring(0, at) : "admin";
+        String hostPart = at > 0 ? rest.substring(at + 1) : rest;
+        if (StringUtils.isEmpty(username))
+        {
+            username = "admin";
+        }
+        return prefix + encode(username) + ":" + encode(password) + "@" + hostPart;
     }
 
     private String resolveLanRtspStreamPath(String configuredPath, int channelNo)

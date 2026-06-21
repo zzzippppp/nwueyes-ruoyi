@@ -56,22 +56,9 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     @Autowired
     private IEzvizScreenService ezvizScreenService;
 
-    /**
-     * 启动直播识别任务
-     * <p>
-     * 核心流程：
-     * <ol>
-     *   <li>校验请求参数</li>
-     *   <li>若已有活跃任务则先停止</li>
-     *   <li>解析拉流地址与协议</li>
-     *   <li>构建并启动 Python 识别子进程</li>
-     *   <li>等待子进程就绪信号（stream ready），超时则抛异常</li>
-     * </ol>
-     * </p>
-     *
-     * @param bo 启动参数（设备序列号、通道号、拉流模式、验证码等）
-     * @return 直播任务视图对象
-     */
+    @Autowired
+    private com.ruoyi.system.service.ICameraService cameraService;
+
     @Override
     public synchronized PresenceLiveTaskVo startLive(PresenceLiveStartBo bo)
     {
@@ -80,14 +67,36 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         // 2. 保证同时只有一个直播任务：先停掉旧任务
         stopActiveIfRunning();
 
+        int channelNo = bo.getChannelNo() == null || bo.getChannelNo() < 1 ? 1 : bo.getChannelNo();
+        Long cameraId = cameraService.resolveOrCreateCamera(bo.getDeviceSerial(), channelNo,
+                "监控点位-" + bo.getDeviceSerial());
+        bo.setCameraId(cameraId);
+
+        com.ruoyi.system.domain.vo.CameraConfigVo cameraConfig = cameraService.getCameraConfig(cameraId);
+        if (bo.getLineY() == null && cameraConfig != null && cameraConfig.getLineY() != null)
+        {
+            bo.setLineY(cameraConfig.getLineY());
+        }
+        if (StringUtils.isEmpty(bo.getRoi()) && cameraConfig != null && !StringUtils.isEmpty(cameraConfig.getRoi()))
+        {
+            bo.setRoi(cameraConfig.getRoi());
+        }
+        if (StringUtils.isEmpty(bo.getValidCode()) && cameraConfig != null
+                && !StringUtils.isEmpty(cameraConfig.getVerifyCode()))
+        {
+            bo.setValidCode(cameraConfig.getVerifyCode());
+        }
+
         // 3. 归一化拉流模式，解析拉流地址和协议
         String streamMode = normalizeStreamMode(bo.getStreamMode());
         boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equals(streamMode);
+        String localIp = cameraConfig != null ? cameraConfig.getIpAddr() : null;
         String streamUrl = ezvizScreenService.resolveAnalyzeStreamUrl(bo.getDeviceSerial(), bo.getChannelNo(), streamMode,
-                bo.getValidCode());
+                bo.getValidCode(), localIp);
         String streamProtocol = resolveStreamProtocol(streamUrl, lanRtsp);
 
-        // 4. 创建任务状态记录
+        // 4. 创建任务状态记录（清理历史已结束任务，避免内存堆积）
+        purgeFinishedTasks();
         String taskId = "live_" + IdUtils.fastSimpleUUID();
         LiveTaskState state = new LiveTaskState(taskId, bo.getDeviceSerial(), streamMode, streamProtocol);
         taskMap.put(taskId, state);
@@ -112,8 +121,11 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
             reader.setDaemon(true);
             reader.start();
 
-            // 7. 等待子进程输出 "stream ready" 信号，确认拉流成功
-            awaitStreamReady(state, lanRtsp);
+            // 7. 异步等待 stream ready，HTTP 立即返回，避免公网首帧慢导致前端 90s 超时
+            Thread readyWaiter = new Thread(() -> waitForStreamReadyAsync(taskId, state, lanRtsp),
+                    "live-ready-" + taskId);
+            readyWaiter.setDaemon(true);
+            readyWaiter.start();
             return state.toVo();
         }
         catch (ServiceException ex)
@@ -147,7 +159,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         LiveTaskState state = taskMap.get(taskId);
         if (state == null)
         {
-            throw new IllegalArgumentException("任务不存在: " + taskId);
+            return buildNotFoundTask(taskId);
         }
         // 强制终止子进程，更新状态
         destroyProcess(state);
@@ -178,13 +190,10 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
             return null;
         }
         PresenceLiveTaskVo task = getTask(activeTaskId);
-        if (task == null)
-        {
-            return null;
-        }
         // 仅 running/starting 状态视为活跃
         String status = StringUtils.nvl(task.getStatus(), "");
-        if ("stopped".equals(status) || "failed".equals(status) || "success".equals(status))
+        if ("stopped".equals(status) || "failed".equals(status) || "success".equals(status)
+                || "not_found".equals(status))
         {
             return null;
         }
@@ -206,7 +215,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         LiveTaskState state = taskMap.get(taskId);
         if (state == null)
         {
-            return null;
+            return buildNotFoundTask(taskId);
         }
         // 检测子进程是否已退出，尝试获取退出码
         if (state.process != null && !state.process.isAlive() && state.exitCode == null)
@@ -225,13 +234,9 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         {
             state.status = state.exitCode == 0 ? "success" : "failed";
             state.finishedAt = nowText();
-            if (state.exitCode == 2)
+            if (state.exitCode != 0)
             {
-                state.message = "RTSP 连接失败：请确认服务器与摄像头在同一局域网，或切换为公网云转发";
-            }
-            else if (state.exitCode != 0)
-            {
-                state.message = "直播识别进程异常退出 exitCode=" + state.exitCode;
+                state.message = resolveLiveFailureMessage(state.exitCode, state.logSnapshot(), state.isLanRtsp());
             }
             // 清理活跃任务标记
             if (taskId.equals(activeTaskId))
@@ -309,6 +314,30 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     }
 
     /**
+     * 后台等待拉流就绪；失败时更新任务状态并清理子进程。
+     */
+    private void waitForStreamReadyAsync(String taskId, LiveTaskState state, boolean lanRtsp)
+    {
+        try
+        {
+            awaitStreamReady(state, lanRtsp);
+        }
+        catch (ServiceException ex)
+        {
+            markTaskFailed(taskId, state, ex.getMessage());
+        }
+        catch (InterruptedException ex)
+        {
+            Thread.currentThread().interrupt();
+            markTaskFailed(taskId, state, "启动直播识别被中断");
+        }
+        catch (Exception ex)
+        {
+            markTaskFailed(taskId, state, "启动直播识别失败: " + ex.getMessage());
+        }
+    }
+
+    /**
      * 等待子进程输出流就绪信号（超时轮询）
      * <p>
      * 每隔 200ms 读取子进程日志输出，检查是否出现 "stream ready" 信号或各类错误标识。
@@ -323,8 +352,10 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     private void awaitStreamReady(LiveTaskState state, boolean lanRtsp) throws InterruptedException
     {
         PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
-        long timeoutMs = lanRtsp ? live.getStreamOpenTimeoutSec() * 1000L
-                : live.getCloudStreamOpenTimeoutSec() * 1000L;
+        long timeoutMs = lanRtsp
+                ? (long) Math.max(live.getStreamOpenTimeoutSec(), Math.ceil(live.getRtspOpenTimeoutSec()) + 20L) * 1000L
+                : (long) Math.max(live.getCloudStreamOpenTimeoutSec(),
+                        Math.ceil(live.getCloudOpenTimeoutSec()) + 30L) * 1000L;
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline)
         {
@@ -364,7 +395,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                 {
                     throwCodecNotH264();
                 }
-                throw new ServiceException("直播识别启动失败，exitCode=" + code);
+                throw new ServiceException(resolveLiveFailureMessage(code, log, lanRtsp));
             }
             // 进程意外退出
             if (state.process != null && !state.process.isAlive())
@@ -418,6 +449,104 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
             return "flv";
         }
         return "hls";
+    }
+
+    /**
+     * 根据进程退出码与日志尾部，生成面向用户的失败说明。
+     */
+    private String resolveLiveFailureMessage(Integer exitCode, String logTail, boolean lanRtsp)
+    {
+        String log = StringUtils.nvl(logTail, "");
+        String fatalDetail = extractFatalDetail(log);
+        if (exitCode == null)
+        {
+            return "直播识别异常结束";
+        }
+        if (exitCode == 0)
+        {
+            return "直播识别已正常结束";
+        }
+        if (exitCode == 2)
+        {
+            if (log.contains("401 Unauthorized") || log.contains("401"))
+            {
+                return "RTSP 鉴权失败：请填写正确的设备验证码，或确认 RTSP 用户名/密码";
+            }
+            if (log.contains("缺少 ultralytics"))
+            {
+                return "缺少 Python 依赖 ultralytics，请在识别环境中执行 pip install ultralytics";
+            }
+            return lanRtsp
+                    ? "局域网 RTSP 连接失败：请确认服务器与摄像头同网、已在萤石 App 开启 RTSP，或切换公网云转发"
+                    : "RTSP 连接失败：请检查拉流地址与网络";
+        }
+        if (exitCode == 3)
+        {
+            return "公网直播流打开失败：请确认设备在线、已开启直播；加密设备需填写验证码，或改用局域网 RTSP";
+        }
+        if (exitCode == 4)
+        {
+            return "视频编码不是 H264：请在萤石 App 将编码改为 H264，或改用局域网 RTSP";
+        }
+        if (exitCode == 1)
+        {
+            if (log.contains("MemoryError") || log.toLowerCase().contains("out of memory"))
+            {
+                return "识别进程内存不足：主码流分辨率较高，请保持 clip 关闭、降低码率/分辨率，或重启后再试";
+            }
+            if (log.contains("frame reader crashed") || log.contains("Stream timeout"))
+            {
+                return "直播流中途断开：请检查网络与摄像头是否在线，然后重新点击「开始识别」";
+            }
+            if (fatalDetail != null)
+            {
+                return "识别运行中崩溃：" + fatalDetail;
+            }
+            if (log.contains("[live] stream ready"))
+            {
+                return "识别运行中异常退出：拉流已成功，可能是网络中断、内存不足或推理报错";
+            }
+            return "识别进程启动后异常退出，请稍后重试";
+        }
+        if (exitCode == -1)
+        {
+            return "识别任务被中断";
+        }
+        String suffix = fatalDetail != null ? "：" + fatalDetail : "";
+        return "直播识别异常退出（exitCode=" + exitCode + "）" + suffix;
+    }
+
+    private String extractFatalDetail(String log)
+    {
+        if (StringUtils.isEmpty(log))
+        {
+            return null;
+        }
+        int idx = log.lastIndexOf("[fatal]");
+        if (idx < 0)
+        {
+            return null;
+        }
+        String line = log.substring(idx);
+        int newline = line.indexOf('\n');
+        if (newline > 0)
+        {
+            line = line.substring(0, newline);
+        }
+        line = line.replaceFirst("\\[fatal\\]\\s*", "").trim();
+        if (line.startsWith("live loop crashed:"))
+        {
+            line = line.substring("live loop crashed:".length()).trim();
+        }
+        else if (line.startsWith("frame reader crashed:"))
+        {
+            line = line.substring("frame reader crashed:".length()).trim();
+        }
+        if (line.length() > 160)
+        {
+            line = line.substring(0, 157) + "...";
+        }
+        return StringUtils.isEmpty(line) ? null : line;
     }
 
     /**
@@ -483,13 +612,9 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
             {
                 state.status = state.exitCode != null && state.exitCode == 0 ? "success" : "failed";
                 state.finishedAt = nowText();
-                if (state.exitCode != null && state.exitCode == 2)
+                if (!"success".equals(state.status) && state.exitCode != null)
                 {
-                    state.message = "RTSP 连接失败：请确认服务器与摄像头在同一局域网，或切换为公网云转发";
-                }
-                else if (!"success".equals(state.status))
-                {
-                    state.message = "直播识别进程已结束 exitCode=" + state.exitCode;
+                    state.message = resolveLiveFailureMessage(state.exitCode, state.logSnapshot(), state.isLanRtsp());
                 }
             }
             if (state.taskId.equals(activeTaskId))
@@ -541,8 +666,8 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         cmd.add(StringUtils.nvl(ingestProperties.getApiKey(), ""));
 
         // ---- 检测区域参数（优先使用请求参数，否则使用配置默认值） ----
-        cmd.add("--location-id");
-        cmd.add(String.valueOf(bo.getLocationId() == null ? ingestProperties.getDefaultLocationId() : bo.getLocationId()));
+        cmd.add("--camera-id");
+        cmd.add(String.valueOf(bo.getCameraId() == null ? ingestProperties.getDefaultCameraId() : bo.getCameraId()));
         cmd.add("--line-y");
         cmd.add(String.valueOf(bo.getLineY() == null ? ingestProperties.getReplayLineY() : bo.getLineY()));
         cmd.add("--roi");
@@ -602,7 +727,14 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         cmd.add("--cross-confirm-frames");
         cmd.add("1");
         cmd.add("--open-timeout-sec");
-        cmd.add(String.valueOf(lanRtsp ? live.getRtspOpenTimeoutSec() : live.getCloudOpenTimeoutSec()));
+        if (lanRtsp)
+        {
+            cmd.add(String.valueOf(Math.max(live.getRtspOpenTimeoutSec(), live.getStreamOpenTimeoutSec())));
+        }
+        else
+        {
+            cmd.add(String.valueOf(Math.max(live.getCloudOpenTimeoutSec(), live.getCloudStreamOpenTimeoutSec())));
+        }
         return cmd;
     }
 
@@ -632,13 +764,22 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     }
 
     /**
-     * 清理任务资源
-     * <p>
-     * 终止子进程并从任务表中移除记录，同时清除活跃任务标记。
-     * </p>
-     *
-     * @param taskId 任务 ID
-     * @param state  任务状态
+     * 标记任务失败并终止子进程，但保留任务记录供前端轮询读取失败原因与日志。
+     */
+    private void markTaskFailed(String taskId, LiveTaskState state, String message)
+    {
+        destroyProcess(state);
+        state.status = "failed";
+        state.message = message;
+        state.finishedAt = nowText();
+        if (taskId.equals(activeTaskId))
+        {
+            activeTaskId = null;
+        }
+    }
+
+    /**
+     * 清理任务资源：终止子进程并从任务表移除（仅用于启动请求同步失败、客户端尚未轮询的场景）。
      */
     private void cleanupTask(String taskId, LiveTaskState state)
     {
@@ -648,6 +789,29 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         {
             activeTaskId = null;
         }
+    }
+
+    /** 移除已结束的历史任务，保留当前活跃任务。 */
+    private void purgeFinishedTasks()
+    {
+        taskMap.entrySet().removeIf(entry ->
+        {
+            if (entry.getKey().equals(activeTaskId))
+            {
+                return false;
+            }
+            String status = entry.getValue().status;
+            return "failed".equals(status) || "stopped".equals(status) || "success".equals(status);
+        });
+    }
+
+    private PresenceLiveTaskVo buildNotFoundTask(String taskId)
+    {
+        PresenceLiveTaskVo vo = new PresenceLiveTaskVo();
+        vo.setTaskId(taskId);
+        vo.setStatus("not_found");
+        vo.setMessage("任务不存在或已过期（可能服务已重启），请重新点击「开始识别」");
+        return vo;
     }
 
     /**
@@ -714,6 +878,11 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
             this.deviceSerial = deviceSerial;
             this.streamMode = streamMode;
             this.streamProtocol = streamProtocol;
+        }
+
+        private boolean isLanRtsp()
+        {
+            return PresenceLiveStartBo.STREAM_LAN_RTSP.equalsIgnoreCase(streamMode);
         }
 
         /**

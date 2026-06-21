@@ -62,7 +62,7 @@ public class PresenceVideoClipServiceImpl implements IPresenceVideoClipService
         clip.setClipType(normalizeClipType(bo.getClipType()));
         clip.setSessionId(bo.getSessionId());
         clip.setSceneGroupId(bo.getSceneGroupId());
-        clip.setLocationId(bo.getLocationId());
+        clip.setCameraId(bo.getCameraId());
         clip.setTrackKey(bo.getTrackKey());
         clip.setStartTime(startTime);
         clip.setEndTime(endTime);
@@ -78,12 +78,12 @@ public class PresenceVideoClipServiceImpl implements IPresenceVideoClipService
 
         if (CLIP_PERSON_SESSION.equals(clip.getClipType()) && !StringUtils.isEmpty(clip.getTrackKey()))
         {
-            videoAnalysisMapper.updateBehaviorLogClipByTrack(clip.getTrackKey(), clip.getLocationId(),
+            videoAnalysisMapper.updateBehaviorLogClipByTrack(clip.getTrackKey(), clip.getCameraId(),
                     clip.getSceneGroupId(), clipId, "pending", clip.getStartTime(), clip.getEndTime());
         }
         if (CLIP_SCENE_GROUP.equals(clip.getClipType()) && !StringUtils.isEmpty(clip.getSceneGroupId()))
         {
-            videoAnalysisMapper.updateBehaviorLogSceneByRange(clip.getLocationId(), clip.getSceneGroupId(),
+            videoAnalysisMapper.updateBehaviorLogSceneByRange(clip.getCameraId(), clip.getSceneGroupId(),
                     "pending", clip.getStartTime(), clip.getEndTime());
         }
 
@@ -105,9 +105,9 @@ public class PresenceVideoClipServiceImpl implements IPresenceVideoClipService
         {
             throw new IllegalArgumentException("clip payload cannot be empty");
         }
-        if (bo.getLocationId() == null)
+        if (bo.getCameraId() == null)
         {
-            throw new IllegalArgumentException("locationId cannot be empty");
+            throw new IllegalArgumentException("cameraId cannot be empty");
         }
         if (StringUtils.isEmpty(bo.getVideoUrl()) && StringUtils.isEmpty(bo.getDeviceSerial()))
         {

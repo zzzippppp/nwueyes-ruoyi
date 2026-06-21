@@ -71,11 +71,11 @@ public class PresenceIngestServiceImpl implements IPresenceIngestService
 
         String eventType = normalizeEventType(bo.getEventType());
 
-        if (bo.getLocationId() == null)
+        if (bo.getCameraId() == null)
 
         {
 
-            throw new IllegalArgumentException("locationId 不能为空");
+            throw new IllegalArgumentException("cameraId 不能为空");
 
         }
 
@@ -101,7 +101,7 @@ public class PresenceIngestServiceImpl implements IPresenceIngestService
 
         {
 
-            processed = presenceTrackService.processExit(bo.getLocationId(), trackKey, eventTime,
+            processed = presenceTrackService.processExit(bo.getCameraId(), trackKey, eventTime,
 
                     bo.getFaceImageUrl(), bo.getBodyImageUrl(), null);
 
@@ -111,7 +111,7 @@ public class PresenceIngestServiceImpl implements IPresenceIngestService
 
         {
 
-            processed = presenceTrackService.processEnter(bo.getLocationId(), trackKey, eventTime,
+            processed = presenceTrackService.processEnter(bo.getCameraId(), trackKey, eventTime,
 
                     bo.getFaceImageUrl(), bo.getBodyImageUrl(), null);
 

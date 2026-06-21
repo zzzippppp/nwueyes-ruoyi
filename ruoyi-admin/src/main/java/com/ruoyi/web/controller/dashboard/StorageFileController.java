@@ -41,6 +41,17 @@ public class StorageFileController
         return serve(storagePaths.resolveLogFaceFile(date, fileName), storagePaths.logFaceDir(date));
     }
 
+    @GetMapping("/snapshot/{year}/{month}/{day}/{fileName:.+}")
+    @Anonymous
+    public ResponseEntity<Resource> serveSnapshot(@PathVariable("year") int year,
+            @PathVariable("month") int month,
+            @PathVariable("day") int day,
+            @PathVariable("fileName") String fileName) throws Exception
+    {
+        LocalDate date = LocalDate.of(year, month, day);
+        return serve(storagePaths.resolveSnapshotFile(date, fileName), storagePaths.snapshotDir(date));
+    }
+
     @GetMapping("/log/body/{year}/{month}/{day}/{fileName:.+}")
     @Anonymous
     public ResponseEntity<Resource> serveLogBody(@PathVariable("year") int year,

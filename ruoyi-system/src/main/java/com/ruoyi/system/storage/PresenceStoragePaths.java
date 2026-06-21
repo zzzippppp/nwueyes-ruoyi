@@ -43,6 +43,45 @@ public class PresenceStoragePaths
         return ingestProperties.resolveStorageRootPath();
     }
 
+    public Path snapshotLibraryRoot()
+    {
+        return storageRoot().resolve("snapshot_library");
+    }
+
+    public Path snapshotDir(LocalDate date)
+    {
+        return snapshotLibraryRoot()
+                .resolve(YEAR.format(date))
+                .resolve(MONTH.format(date))
+                .resolve(DAY.format(date));
+    }
+
+    public String buildSnapshotUrl(LocalDate date, String fileName)
+    {
+        return LOG_URL_PREFIX + "/snapshot/"
+                + YEAR.format(date) + "/" + MONTH.format(date) + "/" + DAY.format(date) + "/"
+                + fileName;
+    }
+
+    public Path resolveSnapshotFile(LocalDate date, String fileName)
+    {
+        return snapshotDir(date).resolve(safeFileName(fileName)).normalize();
+    }
+
+    public String promoteToSnapshot(Path sourceFile, LocalDate date, long logId) throws IOException
+    {
+        if (sourceFile == null || !Files.exists(sourceFile))
+        {
+            return "";
+        }
+        String fileName = "snap_" + logId + extensionOf(sourceFile);
+        Path targetDir = snapshotDir(date);
+        Files.createDirectories(targetDir);
+        Path target = targetDir.resolve(fileName);
+        Files.copy(sourceFile, target, StandardCopyOption.REPLACE_EXISTING);
+        return buildSnapshotUrl(date, fileName);
+    }
+
     public Path logLibraryRoot()
     {
         return storageRoot().resolve("log_library");
@@ -171,6 +210,7 @@ public class PresenceStoragePaths
     public void ensureBaseDirectories() throws IOException
     {
         Files.createDirectories(logLibraryRoot());
+        Files.createDirectories(snapshotLibraryRoot());
         Files.createDirectories(faceLibraryRoot());
         Files.createDirectories(bodyLibraryRoot());
     }
@@ -224,11 +264,16 @@ public class PresenceStoragePaths
         {
             return optionalExisting(resolveLogBodyUrlPath(path.substring(logBodyPrefix.length())));
         }
+        String snapshotPrefix = LOG_URL_PREFIX + "/snapshot/";
+        if (path.startsWith(snapshotPrefix))
+        {
+            return optionalExisting(resolveSnapshotUrlPath(path.substring(snapshotPrefix.length())));
+        }
         return Optional.empty();
     }
 
     /**
-     * Resolve a persisted clip URL back to its local file for OSS upload.
+     * 将 clip URL 解析为本地文件（OSS 上传等）。
      */
     public Optional<Path> resolveClipUrlToFile(String clipUrl)
     {
@@ -257,6 +302,20 @@ public class PresenceStoragePaths
                 Integer.parseInt(parts[1]),
                 Integer.parseInt(parts[2]));
         return optionalExisting(resolveClipFile(date, parts[3]));
+    }
+
+    private Path resolveSnapshotUrlPath(String relative)
+    {
+        String[] parts = relative.split("/");
+        if (parts.length < 4)
+        {
+            throw new IllegalArgumentException("非法 snapshot URL: " + relative);
+        }
+        LocalDate date = LocalDate.of(
+                Integer.parseInt(parts[0]),
+                Integer.parseInt(parts[1]),
+                Integer.parseInt(parts[2]));
+        return resolveSnapshotFile(date, parts[3]);
     }
 
     private Optional<Path> optionalExisting(Path file)

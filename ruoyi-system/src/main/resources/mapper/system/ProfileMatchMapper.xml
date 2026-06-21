@@ -9,7 +9,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             fp.id AS faceProfileId,
             fp.person_id AS personId,
             p.display_name AS displayName,
-            p.person_kind AS personKind,
+            p.person_type::text AS personKind,
             fp.image_url AS imageUrl,
             (fp.embedding &lt;=&gt; #{embedding}::vector) AS distance,
             (1 - (fp.embedding &lt;=&gt; #{embedding}::vector)) AS score
@@ -29,7 +29,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             (ps.enter_body_embedding &lt;=&gt; #{embedding}::vector) AS distance,
             (1 - (ps.enter_body_embedding &lt;=&gt; #{embedding}::vector)) AS score
         FROM presence_sessions ps
-        WHERE ps.location_id = #{locationId}
+        WHERE ps.camera_id = #{cameraId}
           AND ps.status = 'open'
           AND ps.enter_body_embedding IS NOT NULL
           AND (ps.enter_body_embedding &lt;=&gt; #{embedding}::vector) &lt;= #{maxDistance}
@@ -38,13 +38,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </select>
 
     <insert id="insertFaceProfile">
-        INSERT INTO face_profiles (person_id, embedding, image_url, is_primary, created_at)
-        VALUES (#{personId}, #{embedding}::vector, #{imageUrl}, TRUE, NOW())
+        INSERT INTO face_profiles (person_id, embedding, image_url, created_at)
+        VALUES (#{personId}, #{embedding}::vector, #{imageUrl}, NOW())
     </insert>
 
     <insert id="insertBodyProfile">
-        INSERT INTO body_profiles (person_id, embedding, image_url, is_primary, created_at)
-        VALUES (#{personId}, #{embedding}::vector, #{imageUrl}, TRUE, NOW())
+        INSERT INTO body_profiles (person_id, embedding, image_url, created_at)
+        VALUES (#{personId}, #{embedding}::vector, #{imageUrl}, NOW())
+    </insert>
+
+    <insert id="insertBodyProfileImageOnly">
+        INSERT INTO body_profiles (person_id, image_url, created_at)
+        VALUES (#{personId}, #{imageUrl}, NOW())
     </insert>
 
 </mapper>

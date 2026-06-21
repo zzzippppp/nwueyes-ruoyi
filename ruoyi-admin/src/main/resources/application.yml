@@ -160,7 +160,7 @@ presence:
   ingest:
     enabled: ${PRESENCE_INGEST_ENABLED:false}
     apiKey: ${PRESENCE_INGEST_API_KEY:}
-    defaultLocationId: ${PRESENCE_INGEST_DEFAULT_LOCATION_ID:1}
+    defaultCameraId: ${PRESENCE_INGEST_DEFAULT_LOCATION_ID:1}
     workspaceRoot: ${PRESENCE_REPLAY_WORKSPACE_ROOT:E:/nwueyes/ruoyi}
     replayPythonCommand: ${PRESENCE_REPLAY_PYTHON:python}
     replayScriptPath: ${PRESENCE_REPLAY_SCRIPT:scripts/video_replay_worker_yolo.py}
@@ -212,4 +212,4 @@ presence:
       yoloImgsz: ${PRESENCE_LIVE_YOLO_IMGSZ:960}
       yoloConf: ${PRESENCE_LIVE_YOLO_CONF:0.20}
       enterFaceHuntMaxSec: ${PRESENCE_ENTER_FACE_HUNT_MAX_SEC:10}
-      enterFaceGraceSec: ${PRESENCE_ENTER_FACE_GRACE_SEC:1.5}
+      enterFaceGraceSec: ${PRESENCE_ENTER_FACE_GRACE_SEC:4}

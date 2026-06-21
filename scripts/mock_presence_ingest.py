@@ -36,7 +36,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://localhost:8080")
     parser.add_argument("--ingest-key", default="local-presence-key")
-    parser.add_argument("--location-id", type=int, default=1)
+    parser.add_argument("--camera-id", type=int, default=1)
     parser.add_argument("--track-key", default="mock_track_001")
     parser.add_argument("--person-id", type=int, default=1)
     parser.add_argument("--sleep-seconds", type=int, default=3)
@@ -46,7 +46,7 @@ def main():
 
     enter_payload = {
         "eventType": "enter",
-        "locationId": args.location_id,
+        "cameraId": args.camera_id,
         "trackKey": args.track_key,
         "personId": args.person_id,
         "eventTime": iso_now(args.enter_offset_seconds),
@@ -60,7 +60,7 @@ def main():
 
     exit_payload = {
         "eventType": "exit",
-        "locationId": args.location_id,
+        "cameraId": args.camera_id,
         "trackKey": args.track_key,
         "personId": args.person_id,
         "eventTime": iso_now(args.exit_offset_seconds),

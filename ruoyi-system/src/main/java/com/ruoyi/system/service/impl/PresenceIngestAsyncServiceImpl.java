@@ -49,7 +49,7 @@ public class PresenceIngestAsyncServiceImpl implements IPresenceIngestAsyncServi
         {
             return;
         }
-        String dedupeKey = StringUtils.nvl(bo.getLocationId(), 0L) + ":" + StringUtils.nvl(bo.getTrackKey(), "")
+        String dedupeKey = StringUtils.nvl(bo.getCameraId(), 0L) + ":" + StringUtils.nvl(bo.getTrackKey(), "")
                 + ":" + bo.getEventType().toLowerCase();
         long now = System.currentTimeMillis();
         Long last = dedupeAt.get(dedupeKey);
@@ -81,12 +81,12 @@ public class PresenceIngestAsyncServiceImpl implements IPresenceIngestAsyncServi
             PresenceTrackProcessResultVo result;
             if ("exit".equals(eventType))
             {
-                result = presenceTrackService.processExit(bo.getLocationId(), bo.getTrackKey(), eventTime,
+                result = presenceTrackService.processExit(bo.getCameraId(), bo.getTrackKey(), eventTime,
                         bo.getFaceImageUrl(), bo.getBodyImageUrl(), quality);
             }
             else
             {
-                result = presenceTrackService.processEnter(bo.getLocationId(), bo.getTrackKey(), eventTime,
+                result = presenceTrackService.processEnter(bo.getCameraId(), bo.getTrackKey(), eventTime,
                         bo.getFaceImageUrl(), bo.getBodyImageUrl(), quality);
             }
             behaviorLogService.recordLiveIngest(bo, eventTime, result);

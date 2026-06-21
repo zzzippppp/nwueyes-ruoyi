@@ -7,7 +7,7 @@ public class PresenceReplayStartBo
 {
     private String uploadedFileName;
 
-    private Long locationId;
+    private Long cameraId;
 
     private Integer lineY;
 
@@ -25,14 +25,14 @@ public class PresenceReplayStartBo
         this.uploadedFileName = uploadedFileName;
     }
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
-    public void setLocationId(Long locationId)
+    public void setCameraId(Long cameraId)
     {
-        this.locationId = locationId;
+        this.cameraId = cameraId;
     }
 
     public Integer getLineY()

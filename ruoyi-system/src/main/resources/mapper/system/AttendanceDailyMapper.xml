@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.AttendanceDailyMapper">
+
+    <insert id="upsertOnEnter">
+        INSERT INTO person_daily_attendance (
+            stat_date, person_id, camera_id, first_enter_at, enter_count,
+            attendance_status, is_attended, current_session_id, updated_at
+        ) VALUES (
+            #{statDate}, #{personId}, #{cameraId}, #{eventTime}, 1,
+            'present', TRUE, #{sessionId}, NOW()
+        )
+        ON CONFLICT (stat_date, person_id) DO UPDATE SET
+            camera_id = COALESCE(EXCLUDED.camera_id, person_daily_attendance.camera_id),
+            first_enter_at = LEAST(person_daily_attendance.first_enter_at, EXCLUDED.first_enter_at),
+            enter_count = person_daily_attendance.enter_count + 1,
+            attendance_status = 'present',
+            is_attended = TRUE,
+            current_session_id = EXCLUDED.current_session_id,
+            updated_at = NOW()
+    </insert>
+
+    <update id="updateOnExit">
+        UPDATE person_daily_attendance
+        SET last_exit_at = GREATEST(COALESCE(last_exit_at, #{eventTime}), #{eventTime}),
+            total_dwell_seconds = total_dwell_seconds + COALESCE(#{dwellSeconds}, 0),
+            attendance_status = 'left',
+            current_session_id = NULL,
+            updated_at = NOW()
+        WHERE stat_date = #{statDate}
+          AND person_id = #{personId}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE person_daily_attendance
+        SET attendance_status = CAST(#{attendanceStatus} AS attendance_status),
+            current_session_id = #{sessionId},
+            updated_at = NOW()
+        WHERE stat_date = #{statDate}
+          AND person_id = #{personId}
+    </update>
+
+    <select id="selectDailyList" resultType="com.ruoyi.system.domain.vo.PersonDailyAttendanceVo">
+        SELECT
+            pda.id,
+            pda.stat_date::text AS statDate,
+            pda.person_id AS personId,
+            p.display_name AS displayName,
+            p.employee_no AS employeeNo,
+            p.person_type::text AS personType,
+            pda.camera_id AS cameraId,
+            c.device_name AS deviceName,
+            pda.first_enter_at AS firstEnterAt,
+            pda.last_exit_at AS lastExitAt,
+            pda.total_dwell_seconds AS totalDwellSeconds,
+            pda.enter_count AS enterCount,
+            pda.attendance_status::text AS attendanceStatus,
+            pda.is_attended AS isAttended,
+            pda.current_session_id AS currentSessionId
+        FROM person_daily_attendance pda
+        INNER JOIN persons p ON p.id = pda.person_id
+        LEFT JOIN camera c ON c.id = pda.camera_id
+        <where>
+            pda.stat_date &gt;= #{beginDate}
+            AND pda.stat_date &lt;= #{endDate}
+            <if test="cameraId != null">
+                AND pda.camera_id = #{cameraId}
+            </if>
+            <if test="personType != null and personType != ''">
+                AND p.person_type::text = #{personType}
+            </if>
+            <if test="personType == null or personType == ''">
+                AND p.person_type::text IN ('student', 'staff')
+            </if>
+            <if test="displayName != null and displayName != ''">
+                AND p.display_name ILIKE CONCAT('%', #{displayName}, '%')
+            </if>
+            <if test="employeeNo != null and employeeNo != ''">
+                AND p.employee_no = #{employeeNo}
+            </if>
+            <if test="attendanceStatus != null and attendanceStatus != ''">
+                AND pda.attendance_status::text = #{attendanceStatus}
+            </if>
+        </where>
+        ORDER BY pda.first_enter_at DESC NULLS LAST, pda.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countRegistryPersons" resultType="int">
+        SELECT COUNT(*) FROM persons WHERE person_type IN ('student', 'staff')
+    </select>
+
+    <select id="countAttendedToday" resultType="int">
+        SELECT COUNT(*)
+        FROM person_daily_attendance pda
+        INNER JOIN persons p ON p.id = pda.person_id
+        WHERE pda.stat_date = #{statDate}
+          AND pda.is_attended = TRUE
+          <if test="!includeStranger">
+              AND p.person_type IN ('student', 'staff')
+          </if>
+          <if test="includeStranger">
+              AND p.person_type = 'stranger'
+          </if>
+    </select>
+
+    <select id="countPresentPersons" resultType="int">
+        SELECT COUNT(DISTINCT ps.person_id)
+        FROM presence_sessions ps
+        INNER JOIN persons p ON p.id = ps.person_id
+        WHERE ps.status = 'open'
+          AND ps.person_id IS NOT NULL
+          <if test="personTypeFilter == 'stranger'">
+              AND p.person_type = 'stranger'
+          </if>
+          <if test="personTypeFilter == 'registry'">
+              AND p.person_type IN ('student', 'staff')
+          </if>
+    </select>
+
+    <select id="countStrangerPersons" resultType="int">
+        SELECT COUNT(*) FROM persons WHERE person_type = 'stranger'
+    </select>
+
+    <select id="selectDailyStats" resultType="com.ruoyi.system.domain.vo.AttendanceDailyStatsVo">
+        SELECT
+            stat_date::text AS statDate,
+            total_registry_count AS totalRegistryCount,
+            attended_count AS attendedCount,
+            attendance_rate AS attendanceRate,
+            stranger_total_count AS strangerTotalCount
+        FROM attendance_daily_stats
+        WHERE stat_date = #{statDate}
+    </select>
+
+    <insert id="upsertDailyStats">
+        INSERT INTO attendance_daily_stats (
+            stat_date, total_registry_count, attended_count, attendance_rate, stranger_total_count, computed_at
+        ) VALUES (
+            #{statDate}, #{totalRegistry}, #{attendedCount}, #{attendanceRate}, #{strangerTotal}, NOW()
+        )
+        ON CONFLICT (stat_date) DO UPDATE SET
+            total_registry_count = EXCLUDED.total_registry_count,
+            attended_count = EXCLUDED.attended_count,
+            attendance_rate = EXCLUDED.attendance_rate,
+            stranger_total_count = EXCLUDED.stranger_total_count,
+            computed_at = NOW()
+    </insert>
+
+    <update id="reassignPersonDaily">
+        UPDATE person_daily_attendance SET person_id = #{toPersonId}, updated_at = NOW()
+        WHERE person_id = #{fromPersonId}
+    </update>
+
+    <delete id="deletePersonDailyByPerson">
+        DELETE FROM person_daily_attendance WHERE person_id = #{personId}
+    </delete>
+
+</mapper>

@@ -9,8 +9,6 @@ public class DataBoardStrangerItemVo
 
     private String displayName;
 
-    private String tagsText;
-
     private String faceImageUrl;
 
     private Long mergedPersonId;
@@ -33,16 +31,6 @@ public class DataBoardStrangerItemVo
     public void setDisplayName(String displayName)
     {
         this.displayName = displayName;
-    }
-
-    public String getTagsText()
-    {
-        return tagsText;
-    }
-
-    public void setTagsText(String tagsText)
-    {
-        this.tagsText = tagsText;
     }
 
     public String getFaceImageUrl()
