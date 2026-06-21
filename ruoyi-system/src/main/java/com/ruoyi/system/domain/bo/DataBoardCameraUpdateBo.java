@@ -1,22 +1,22 @@
 package com.ruoyi.system.domain.bo;
 
 /**
- * 点位编辑请求
+ * 摄像头编辑请求
  */
-public class DataBoardLocationUpdateBo
+public class DataBoardCameraUpdateBo
 {
-    private String locationName;
+    private String deviceName;
 
     private Boolean isActive;
 
-    public String getLocationName()
+    public String getDeviceName()
     {
-        return locationName;
+        return deviceName;
     }
 
-    public void setLocationName(String locationName)
+    public void setDeviceName(String deviceName)
     {
-        this.locationName = locationName;
+        this.deviceName = deviceName;
     }
 
     public Boolean getIsActive()

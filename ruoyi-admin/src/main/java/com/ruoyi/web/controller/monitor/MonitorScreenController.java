@@ -71,10 +71,6 @@ public class MonitorScreenController
     public AjaxResult liveRecognizeStatus(@PathVariable("taskId") String taskId)
     {
         PresenceLiveTaskVo task = presenceLiveService.getTask(taskId);
-        if (task == null)
-        {
-            return AjaxResult.error("任务不存在: " + taskId);
-        }
         return AjaxResult.success(task);
     }
 }

@@ -45,14 +45,18 @@ def is_local_media_url(url: str) -> bool:
     return os.path.isfile(path)
 
 
-try:
-    from ultralytics import YOLO
-except Exception as ex:  # pragma: no cover
-    print(f"[fatal] 缺少 ultralytics 依赖: {ex}", file=sys.stderr)
-    sys.exit(2)
-
 RTSP_OPEN_FAILED = 2
 STREAM_CODEC_NOT_H264 = 4
+
+
+def load_yolo(model_path: str):
+    """延迟加载 YOLO，避免 import ultralytics 阻塞进程启动与首条日志输出。"""
+    try:
+        from ultralytics import YOLO
+    except Exception as ex:  # pragma: no cover
+        print(f"[fatal] 缺少 ultralytics 依赖: {ex}", file=sys.stderr, flush=True)
+        sys.exit(2)
+    return YOLO(model_path)
 
 
 def post_event_async(
@@ -367,7 +371,7 @@ class ClipRecorder:
             "clipKey": clip_key,
             "clipType": clip_type,
             "sceneGroupId": scene_group_id,
-            "locationId": self.args.location_id,
+            "cameraId": self.args.camera_id,
             "trackKey": track_key,
             "startTime": iso_from_ts(start_ts),
             "endTime": iso_from_ts(end_ts),
@@ -482,21 +486,23 @@ def finalize_live_capture(
 ):
     face_img, body_img = capture.finalize_images()
     quality = capture.quality_flag()
-    face_url, body_url = save_live_event_snapshot(
+    face_url, body_url, snapshot_url = save_live_event_snapshot(
         args.storage_root,
         args.task_id,
         capture.track_key,
         capture.event_type,
         face_img,
         body_img,
+        capture.finalize_snapshot_frame(),
     )
     payload = {
         "eventType": capture.event_type,
-        "locationId": args.location_id,
+        "cameraId": args.camera_id,
         "trackKey": capture.track_key,
         "eventTime": iso_now(),
         "faceImageUrl": face_url,
         "bodyImageUrl": body_url,
+        "snapshotUrl": snapshot_url,
         "bestMatchScore": conf,
         "async": True,
         "qualityFlag": quality,
@@ -548,7 +554,9 @@ def iso_from_ts(ts: float) -> str:
 
 def configure_ffmpeg_options(stream_protocol: str):
     if stream_protocol == "rtsp":
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|fflags;nobuffer|max_delay;500000"
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            "rtsp_transport;tcp|stimeout;5000000|fflags;nobuffer|max_delay;500000"
+        )
     elif stream_protocol == "flv":
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "fflags;nobuffer|max_delay;500000"
     else:
@@ -726,13 +734,16 @@ def rtsp_candidate_urls(stream_url: str) -> list[str]:
     userinfo, hostport = parsed.netloc.split("@", 1)
   if not hostport:
     return [stream_url]
-  paths = [
-    "/h264/ch1/sub/av_stream",
-    "/Streaming/Channels/102",
-    parsed.path or "",
+  configured = (parsed.path or "").strip()
+  paths = []
+  if configured:
+    paths.append(configured)
+  for path in (
     "/h264/ch1/main/av_stream",
     "/Streaming/Channels/101",
-  ]
+  ):
+    if path not in paths:
+      paths.append(path)
   urls: list[str] = []
   for path in paths:
     if not path:
@@ -754,6 +765,76 @@ def is_ezviz_codec_error_frame(frame) -> bool:
     std = float(gray.std())
     h = frame.shape[0]
     return mean > 215 and std < 75 and h <= 400
+
+
+def collect_probe_frame(cap: cv2.VideoCapture, deadline: float, stream_protocol: str):
+    """
+    萤石 FLV/HLS 首帧常为低清预览（如 768x432），需在 warmup 内取最大分辨率帧。
+    RTSP 仍用首帧即可。
+    """
+    best = None
+    best_area = 0
+    started = time.time()
+    while time.time() < deadline:
+        ret, frame = cap.read()
+        if not ret or frame is None or frame.size == 0:
+            time.sleep(0.15)
+            continue
+        if is_ezviz_codec_error_frame(frame):
+            time.sleep(0.15)
+            continue
+        h, w = frame.shape[:2]
+        area = w * h
+        if area > best_area:
+            best = frame
+            best_area = area
+        if stream_protocol not in ("flv", "hls"):
+            return best
+        elapsed = time.time() - started
+        if elapsed >= 5.0:
+            return best
+        if best_area >= 1920 * 1080 and elapsed >= 1.0:
+            return best
+        time.sleep(0.05)
+    return best
+
+
+def sample_enter_face_hunts(
+    frame,
+    now: float,
+    active_captures: Dict[str, LiveEventCapture],
+    capture_last_box: Dict[str, tuple],
+    capture_last_conf: Dict[str, float],
+    capture_last_box_ts: Dict[str, float],
+    frame_area: int,
+    max_box_age_sec: float,
+) -> int:
+    """进门追脸阶段全帧率采样：复用最近 YOLO 人体框，仅跑 InsightFace 择优。"""
+    sampled = 0
+    for track_key, cap in active_captures.items():
+        if cap.event_type != "enter":
+            continue
+        box = capture_last_box.get(track_key)
+        if box is None:
+            continue
+        if now - capture_last_box_ts.get(track_key, 0.0) > max_box_age_sec:
+            continue
+        cap.try_sample(frame, box, capture_last_conf.get(track_key, 0.0), frame_area)
+        sampled += 1
+    return sampled
+
+
+def prune_capture_box_cache(
+    active_captures: Dict[str, LiveEventCapture],
+    capture_last_box: Dict[str, tuple],
+    capture_last_conf: Dict[str, float],
+    capture_last_box_ts: Dict[str, float],
+):
+    stale = [k for k in capture_last_box if k not in active_captures]
+    for key in stale:
+        capture_last_box.pop(key, None)
+        capture_last_conf.pop(key, None)
+        capture_last_box_ts.pop(key, None)
 
 
 def save_probe_frame(
@@ -794,7 +875,7 @@ def main():
     parser.add_argument("--storage-root", required=True)
     parser.add_argument("--ingest-base-url", default="http://localhost:8080")
     parser.add_argument("--ingest-key", default="")
-    parser.add_argument("--location-id", type=int, default=1)
+    parser.add_argument("--camera-id", type=int, default=1)
     parser.add_argument("--line-y", type=int, default=520)
     parser.add_argument("--roi", default="620,170,1290,760")
     parser.add_argument("--model", default="yolov8n.pt")
@@ -818,7 +899,7 @@ def main():
     parser.add_argument(
         "--enter-face-grace-sec",
         type=float,
-        default=1.5,
+        default=4.0,
         help="进门首次检出脸后继续择优的宽限时间（秒）",
     )
     parser.add_argument("--face-min-det-score", type=float, default=0.45, help="InsightFace 人脸检测最低分")
@@ -834,9 +915,14 @@ def main():
     parser.add_argument("--channel-no", type=int, default=1)
     parser.add_argument("--valid-code", default="")
     args = parser.parse_args()
+    print(f"[live] worker starting task={args.task_id}", flush=True)
 
     stream_host = urlparse(args.stream_url).netloc or args.stream_url[:48]
-    print(f"[live] opening stream protocol={args.stream_protocol} host={stream_host}", flush=True)
+    stream_tag = args.stream_url.split("/")[-1].split("?")[0]
+    print(
+        f"[live] opening stream protocol={args.stream_protocol} host={stream_host} tag={stream_tag}",
+        flush=True,
+    )
     started_at = time.time()
 
     model_holder: dict = {"model": None, "error": None}
@@ -844,7 +930,7 @@ def main():
     def _load_model():
         try:
             print("[live] loading yolo model...", flush=True)
-            model_holder["model"] = YOLO(args.model)
+            model_holder["model"] = load_yolo(args.model)
             print("[live] yolo model ready", flush=True)
         except Exception as ex:
             model_holder["error"] = ex
@@ -875,12 +961,25 @@ def main():
             time.sleep(0.3)
             continue
 
-        ret, frame = video_cap.read()
-        if ret and frame is not None and frame.size > 0:
-            probe = frame
-            if url_index > 0:
-                print(f"[live] rtsp fallback ok index={url_index} url={stream_urls[url_index][:80]}", flush=True)
-            break
+        if args.stream_protocol in ("flv", "hls"):
+            remaining = open_deadline - time.time()
+            if remaining > 0:
+                probe = collect_probe_frame(
+                    video_cap,
+                    time.time() + min(8.0, remaining),
+                    args.stream_protocol,
+                )
+            if probe is not None:
+                ph, pw = probe.shape[:2]
+                print(f"[live] probe warmup selected {pw}x{ph}", flush=True)
+                break
+        else:
+            ret, frame = video_cap.read()
+            if ret and frame is not None and frame.size > 0 and not is_ezviz_codec_error_frame(frame):
+                probe = frame
+                if url_index > 0:
+                    print(f"[live] rtsp fallback ok index={url_index} url={stream_urls[url_index][:80]}", flush=True)
+                break
 
         video_cap.release()
         url_index += 1
@@ -930,6 +1029,7 @@ def main():
     door_gate = PerTrackDoorGate(line_y, tight_margin, exit_margin)
     track_hits: Dict[int, int] = {}
     detect_interval = 1.0 / max(args.target_detect_fps, 0.5)
+    max_capture_box_age_sec = max(1.0, detect_interval * 2.5)
     local_file_mode = is_local_media_url(args.stream_url)
     corridor_margin_x = max(24, int((x2 - x1) * 0.10))
     frame_pace_sec = (1.0 / fps) if local_file_mode else 0.0
@@ -940,6 +1040,7 @@ def main():
         f"conf={args.conf} imgsz={args.imgsz} crossConfirm={args.cross_confirm_frames} "
         f"snapshotWindow={args.snapshot_window_sec}s enterFaceHuntMax={args.enter_face_hunt_max_sec}s "
         f"enterFaceGrace={args.enter_face_grace_sec}s faceMinDet={args.face_min_det_score} "
+        f"enterFaceFullRate=yes maxBoxAge={max_capture_box_age_sec:.2f}s "
         f"tightInferPx={tight_margin} exitMarginPx={exit_margin} minTrackHits={min_track_hits} "
         f"enterInsidePx={enter_inside_px} corridorMarginX={corridor_margin_x} "
         f"localFile={local_file_mode} "
@@ -957,12 +1058,15 @@ def main():
     model = model_holder["model"]
     if model is None:
         print("[live] yolo preload timeout, loading inline", flush=True)
-        model = YOLO(args.model)
+        model = load_yolo(args.model)
     prev_cy: Dict[int, float] = {}
     seen_tracks: set[int] = set()
     cross_pending: Dict[int, tuple[str, int]] = {}
     last_event_at: Dict[str, float] = {}
     active_captures: Dict[str, LiveEventCapture] = {}
+    capture_last_box: Dict[str, tuple] = {}
+    capture_last_conf: Dict[str, float] = {}
+    capture_last_box_ts: Dict[str, float] = {}
     track_conf: Dict[str, float] = {}
     foot_tracker = FootpointTracker(max_dist=max(120.0, width * 0.06))
     frame_area = width * height
@@ -1000,8 +1104,24 @@ def main():
             )
             enter_count += e_delta
             exit_count += x_delta
+            prune_capture_box_cache(
+                active_captures, capture_last_box, capture_last_conf, capture_last_box_ts
+            )
 
-            if now - last_detect_at < detect_interval:
+            will_detect = (now - last_detect_at) >= detect_interval
+            if not will_detect:
+                sample_enter_face_hunts(
+                    frame,
+                    now,
+                    active_captures,
+                    capture_last_box,
+                    capture_last_conf,
+                    capture_last_box_ts,
+                    frame_area,
+                    max_capture_box_age_sec,
+                )
+
+            if not will_detect:
                 continue
             last_detect_at = now
             detect_pass += 1
@@ -1064,6 +1184,9 @@ def main():
                 box = (bx1, by1, bx2, by2)
 
                 if capture_sess is not None:
+                    capture_last_box[track_key] = box
+                    capture_last_conf[track_key] = conf
+                    capture_last_box_ts[track_key] = now
                     capture_sess.try_sample(frame, box, conf, frame_area)
                     continue
 
@@ -1128,6 +1251,9 @@ def main():
                     enter_face_hunt_max_sec=args.enter_face_hunt_max_sec,
                     enter_face_grace_sec=args.enter_face_grace_sec,
                 )
+                capture_last_box[track_key] = box
+                capture_last_conf[track_key] = conf
+                capture_last_box_ts[track_key] = now
                 active_captures[track_key].try_sample(frame, box, conf, frame_area)
                 track_conf[track_key] = conf
                 last_event_at[track_key] = now

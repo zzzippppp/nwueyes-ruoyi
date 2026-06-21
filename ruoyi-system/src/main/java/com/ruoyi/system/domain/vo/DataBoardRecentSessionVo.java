@@ -16,7 +16,9 @@ public class DataBoardRecentSessionVo
 
     private String personKind;
 
-    private String locationName;
+    private String deviceName;
+
+    private String employeeNo;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date arrivalAt;
@@ -70,14 +72,24 @@ public class DataBoardRecentSessionVo
         this.personKind = personKind;
     }
 
-    public String getLocationName()
+    public String getDeviceName()
     {
-        return locationName;
+        return deviceName;
     }
 
-    public void setLocationName(String locationName)
+    public void setDeviceName(String deviceName)
     {
-        this.locationName = locationName;
+        this.deviceName = deviceName;
+    }
+
+    public String getEmployeeNo()
+    {
+        return employeeNo;
+    }
+
+    public void setEmployeeNo(String employeeNo)
+    {
+        this.employeeNo = employeeNo;
     }
 
     public Date getArrivalAt()

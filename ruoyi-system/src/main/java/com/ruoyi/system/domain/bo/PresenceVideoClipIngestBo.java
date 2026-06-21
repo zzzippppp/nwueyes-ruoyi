@@ -6,7 +6,7 @@ public class PresenceVideoClipIngestBo
     private String clipType;
     private Long sessionId;
     private String sceneGroupId;
-    private Long locationId;
+    private Long cameraId;
     private String trackKey;
     private String startTime;
     private String endTime;
@@ -27,8 +27,8 @@ public class PresenceVideoClipIngestBo
     public void setSessionId(Long sessionId) { this.sessionId = sessionId; }
     public String getSceneGroupId() { return sceneGroupId; }
     public void setSceneGroupId(String sceneGroupId) { this.sceneGroupId = sceneGroupId; }
-    public Long getLocationId() { return locationId; }
-    public void setLocationId(Long locationId) { this.locationId = locationId; }
+    public Long getCameraId() { return cameraId; }
+    public void setCameraId(Long cameraId) { this.cameraId = cameraId; }
     public String getTrackKey() { return trackKey; }
     public void setTrackKey(String trackKey) { this.trackKey = trackKey; }
     public String getStartTime() { return startTime; }

@@ -5,7 +5,7 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 /**
- * 行为日志列表项
+ * 行为日志列表项（合并：人脸/体态小图 + 整帧 snapshot + clip/AI + 考勤字段）
  */
 public class BehaviorLogItemVo
 {
@@ -22,9 +22,17 @@ public class BehaviorLogItemVo
 
     private String bodyImageUrl;
 
-    private Long locationId;
+    private String snapshotUrl;
 
-    private String locationName;
+    private String videoUrl;
+
+    private String personType;
+
+    private String employeeNo;
+
+    private Long cameraId;
+
+    private String deviceName;
 
     private Long personId;
 
@@ -32,15 +40,13 @@ public class BehaviorLogItemVo
 
     private Long sessionId;
 
-    private String personKind;
-
-    private String source;
-
     private Float faceMatchScore;
 
     private Float bodyMatchScore;
 
     private String qualityFlag;
+
+    private String behaviorAnalysis;
 
     private String sceneGroupId;
 
@@ -119,24 +125,86 @@ public class BehaviorLogItemVo
         this.bodyImageUrl = bodyImageUrl;
     }
 
-    public Long getLocationId()
+    public String getSnapshotUrl()
     {
-        return locationId;
+        return snapshotUrl;
     }
 
-    public void setLocationId(Long locationId)
+    public void setSnapshotUrl(String snapshotUrl)
     {
-        this.locationId = locationId;
+        this.snapshotUrl = snapshotUrl;
     }
 
-    public String getLocationName()
+    public String getVideoUrl()
     {
-        return locationName;
+        return videoUrl;
     }
 
-    public void setLocationName(String locationName)
+    public void setVideoUrl(String videoUrl)
     {
-        this.locationName = locationName;
+        this.videoUrl = videoUrl;
+    }
+
+    public String getPersonType()
+    {
+        return personType;
+    }
+
+    public void setPersonType(String personType)
+    {
+        this.personType = personType;
+    }
+
+    public String getEmployeeNo()
+    {
+        return employeeNo;
+    }
+
+    public void setEmployeeNo(String employeeNo)
+    {
+        this.employeeNo = employeeNo;
+    }
+
+    /** 兼容旧前端 */
+    public String getPersonKind()
+    {
+        return personType;
+    }
+
+    public void setPersonKind(String personKind)
+    {
+        this.personType = personKind;
+    }
+
+    /** 兼容旧前端 */
+    public String getSource()
+    {
+        return "live";
+    }
+
+    public void setSource(String source)
+    {
+        // no-op
+    }
+
+    public Long getCameraId()
+    {
+        return cameraId;
+    }
+
+    public void setCameraId(Long cameraId)
+    {
+        this.cameraId = cameraId;
+    }
+
+    public String getDeviceName()
+    {
+        return deviceName;
+    }
+
+    public void setDeviceName(String deviceName)
+    {
+        this.deviceName = deviceName;
     }
 
     public Long getPersonId()
@@ -169,26 +237,6 @@ public class BehaviorLogItemVo
         this.sessionId = sessionId;
     }
 
-    public String getPersonKind()
-    {
-        return personKind;
-    }
-
-    public void setPersonKind(String personKind)
-    {
-        this.personKind = personKind;
-    }
-
-    public String getSource()
-    {
-        return source;
-    }
-
-    public void setSource(String source)
-    {
-        this.source = source;
-    }
-
     public Float getFaceMatchScore()
     {
         return faceMatchScore;
@@ -217,6 +265,16 @@ public class BehaviorLogItemVo
     public void setQualityFlag(String qualityFlag)
     {
         this.qualityFlag = qualityFlag;
+    }
+
+    public String getBehaviorAnalysis()
+    {
+        return behaviorAnalysis;
+    }
+
+    public void setBehaviorAnalysis(String behaviorAnalysis)
+    {
+        this.behaviorAnalysis = behaviorAnalysis;
     }
 
     public String getSceneGroupId()

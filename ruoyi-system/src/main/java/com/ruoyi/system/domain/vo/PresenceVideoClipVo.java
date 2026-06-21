@@ -11,7 +11,7 @@ public class PresenceVideoClipVo
     private String clipType;
     private Long sessionId;
     private String sceneGroupId;
-    private Long locationId;
+    private Long cameraId;
     private String trackKey;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
@@ -41,8 +41,8 @@ public class PresenceVideoClipVo
     public void setSessionId(Long sessionId) { this.sessionId = sessionId; }
     public String getSceneGroupId() { return sceneGroupId; }
     public void setSceneGroupId(String sceneGroupId) { this.sceneGroupId = sceneGroupId; }
-    public Long getLocationId() { return locationId; }
-    public void setLocationId(Long locationId) { this.locationId = locationId; }
+    public Long getCameraId() { return cameraId; }
+    public void setCameraId(Long cameraId) { this.cameraId = cameraId; }
     public String getTrackKey() { return trackKey; }
     public void setTrackKey(String trackKey) { this.trackKey = trackKey; }
     public Date getStartTime() { return startTime; }

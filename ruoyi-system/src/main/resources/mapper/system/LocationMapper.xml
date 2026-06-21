@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.LocationMapper">
+
+    <select id="selectById" resultType="com.ruoyi.system.domain.vo.LocationConfigVo">
+        SELECT
+            id,
+            device_serial AS deviceSerial,
+            channel_no AS channelNo,
+            name,
+            line_y AS lineY,
+            roi,
+            ref_width AS refWidth,
+            ref_height AS refHeight
+        FROM locations
+        WHERE id = #{locationId}
+    </select>
+
+    <select id="selectIdByDevice" resultType="java.lang.Long">
+        SELECT id
+        FROM locations
+        WHERE device_serial = #{deviceSerial}
+          AND channel_no = #{channelNo}
+        LIMIT 1
+    </select>
+
+    <insert id="insertLocation">
+        INSERT INTO locations (device_serial, channel_no, name, is_active, created_at)
+        VALUES (#{deviceSerial}, #{channelNo}, #{name}, TRUE, NOW())
+    </insert>
+
+    <update id="updateDoorConfig">
+        UPDATE locations
+        SET line_y = COALESCE(#{lineY}, line_y),
+            roi = COALESCE(#{roi}, roi)
+        WHERE id = #{locationId}
+    </update>
+
+</mapper>

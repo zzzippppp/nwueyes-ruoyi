@@ -15,7 +15,7 @@ presence:
   ingest:
     enabled: true
     apiKey: ${PRESENCE_INGEST_API_KEY:change-me-ingest-key}
-    defaultLocationId: 1
+    defaultCameraId: 1
     workspaceRoot: ${PRESENCE_WORKSPACE_ROOT:./ruoyi}
     replayProfileRoot: ${NWUEYES_UPLOAD_PATH:./data/uploadPath}
     replayIngestBaseUrl: ${PRESENCE_INGEST_BASE_URL:http://localhost:8080}
@@ -29,7 +29,8 @@ presence:
     bodyMatchThreshold: 0.50
     liveScriptPath: scripts/live_stream_worker_yolo.py
     clip:
-      enabled: true
+      # 直播识别建议关闭：主码流环形缓冲占内存过大，易触发 exitCode=1
+      enabled: false
       preRollSec: 3
       postRollSec: 3
       trackLostSec: 2

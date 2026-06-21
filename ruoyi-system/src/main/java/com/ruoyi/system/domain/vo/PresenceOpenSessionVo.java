@@ -9,7 +9,7 @@ public class PresenceOpenSessionVo
 {
     private Long sessionId;
 
-    private Long locationId;
+    private Long cameraId;
 
     private Long personId;
 
@@ -27,14 +27,14 @@ public class PresenceOpenSessionVo
         this.sessionId = sessionId;
     }
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
-    public void setLocationId(Long locationId)
+    public void setCameraId(Long cameraId)
     {
-        this.locationId = locationId;
+        this.cameraId = cameraId;
     }
 
     public Long getPersonId()

@@ -5,18 +5,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 <mapper namespace="com.ruoyi.system.mapper.PresenceIngestMapper">
 
     <select id="existsLocation" resultType="int">
-        SELECT COUNT(1) FROM locations WHERE id = #{locationId}
+        SELECT COUNT(1) FROM camera WHERE id = #{cameraId}
     </select>
 
     <select id="selectOpenByTrack" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             person_id AS personId,
             track_key AS trackKey,
             arrival_at AS arrivalAt
         FROM presence_sessions
-        WHERE location_id = #{locationId}
+        WHERE camera_id = #{cameraId}
           AND track_key = #{trackKey}
           AND status = 'open'
         ORDER BY id DESC
@@ -26,7 +26,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectOpenBySessionId" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             person_id AS personId,
             track_key AS trackKey,
             arrival_at AS arrivalAt
@@ -39,12 +39,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectLatestOpenByPerson" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             person_id AS personId,
             track_key AS trackKey,
             arrival_at AS arrivalAt
         FROM presence_sessions
-        WHERE location_id = #{locationId}
+        WHERE camera_id = #{cameraId}
           AND person_id = #{personId}
           AND status = 'open'
         ORDER BY id DESC
@@ -54,12 +54,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectLatestOpenByLocation" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
-            location_id AS locationId,
+            camera_id AS cameraId,
             person_id AS personId,
             track_key AS trackKey,
             arrival_at AS arrivalAt
         FROM presence_sessions
-        WHERE location_id = #{locationId}
+        WHERE camera_id = #{cameraId}
           AND status = 'open'
         ORDER BY id DESC
         LIMIT 1
@@ -67,31 +67,25 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
     <select id="insertOpenSession" resultType="java.lang.Long">
         INSERT INTO presence_sessions (
-            location_id,
+            camera_id,
             person_id,
             track_key,
+            attendance_date,
             arrival_at,
-            last_seen_at,
             status,
-            face_image_url,
-            body_image_url,
             best_match_score,
-            enter_face_embedding,
             enter_body_embedding,
             created_at,
             updated_at
         )
         VALUES (
-            #{locationId},
+            #{cameraId},
             #{personId},
             #{trackKey},
-            #{eventTime},
+            (#{eventTime} AT TIME ZONE 'Asia/Shanghai')::date,
             #{eventTime},
             'open',
-            #{faceImageUrl},
-            #{bodyImageUrl},
             #{bestMatchScore},
-            CAST(#{enterFaceEmbedding} AS vector),
             CAST(#{enterBodyEmbedding} AS vector),
             NOW(),
             NOW()
@@ -99,29 +93,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         RETURNING id
     </select>
 
-    <update id="touchOpenSession">
-        UPDATE presence_sessions
-        SET last_seen_at = GREATEST(last_seen_at, #{eventTime}),
-            person_id = COALESCE(#{personId}, person_id),
-            face_image_url = COALESCE(#{faceImageUrl}, face_image_url),
-            body_image_url = COALESCE(#{bodyImageUrl}, body_image_url),
-            best_match_score = COALESCE(#{bestMatchScore}, best_match_score),
-            enter_face_embedding = COALESCE(CAST(#{enterFaceEmbedding} AS vector), enter_face_embedding),
-            enter_body_embedding = COALESCE(CAST(#{enterBodyEmbedding} AS vector), enter_body_embedding),
-            updated_at = NOW()
-        WHERE id = #{sessionId}
-          AND status = 'open'
-    </update>
-
     <update id="closeSession">
         UPDATE presence_sessions
         SET person_id = COALESCE(#{personId}, person_id),
             departure_at = #{eventTime},
-            last_seen_at = GREATEST(last_seen_at, #{eventTime}),
             dwell_seconds = GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (#{eventTime} - arrival_at))))::int,
             status = 'closed',
-            face_image_url = COALESCE(#{faceImageUrl}, face_image_url),
-            body_image_url = COALESCE(#{bodyImageUrl}, body_image_url),
             best_match_score = COALESCE(#{bestMatchScore}, best_match_score),
             updated_at = NOW()
         WHERE id = #{sessionId}

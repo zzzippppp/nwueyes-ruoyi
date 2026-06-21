@@ -40,6 +40,10 @@ public class SysUser extends BaseEntity
     @Excel(name = "用户名称")
     private String nickName;
 
+    /** 学工号 */
+    @Excel(name = "学工号")
+    private String workNo;
+
     /** 用户邮箱 */
     @Excel(name = "用户邮箱")
     private String email;
@@ -141,6 +145,17 @@ public class SysUser extends BaseEntity
     public void setNickName(String nickName)
     {
         this.nickName = nickName;
+    }
+
+    @Size(min = 0, max = 30, message = "学工号长度不能超过30个字符")
+    public String getWorkNo()
+    {
+        return workNo;
+    }
+
+    public void setWorkNo(String workNo)
+    {
+        this.workNo = workNo;
     }
 
     @Xss(message = "用户账号不能包含脚本字符")
@@ -317,6 +332,7 @@ public class SysUser extends BaseEntity
             .append("deptId", getDeptId())
             .append("userName", getUserName())
             .append("nickName", getNickName())
+            .append("workNo", getWorkNo())
             .append("email", getEmail())
             .append("phonenumber", getPhonenumber())
             .append("sex", getSex())

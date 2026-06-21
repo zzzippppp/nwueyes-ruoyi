@@ -2,9 +2,7 @@
 """
 YOLO + ByteTrack 视频分析（仅输出结果，不入库）
 
-输出：
-- 标注调试视频（debug-out）
-- 结果 JSON（result-json）：事件、轨迹统计、汇总
+与直播链路一致：每次过线事件单独择优抓拍（进门追脸、出门体态），写入 events[]。
 """
 
 from __future__ import annotations
@@ -13,7 +11,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import cv2
 
@@ -24,7 +22,7 @@ from line_crossing import (
     min_track_hits_for_event,
     tight_infer_margin,
 )
-from snapshot_quality import TrackBestShots, save_track_snapshots
+from snapshot_quality import VideoEventCapture, finalize_video_event_capture
 
 try:
     from ultralytics import YOLO
@@ -62,12 +60,16 @@ def main():
     parser.add_argument("--debug-out", required=True)
     parser.add_argument("--result-json", required=True)
     parser.add_argument("--event-cooldown-frames", type=int, default=20)
-    parser.add_argument("--enter-infer-margin", type=int, default=80, help="首次检出时距过线下方多少像素内补推断进门")
-    parser.add_argument("--exit-infer-margin", type=int, default=80, help="首次检出时距过线上方多少像素内补推断出门")
+    parser.add_argument("--enter-infer-margin", type=int, default=80)
+    parser.add_argument("--exit-infer-margin", type=int, default=80)
     parser.add_argument("--debug-video-url", default="")
-    parser.add_argument("--task-id", default="", help="分析任务 ID，用于抓拍落盘")
-    parser.add_argument("--storage-root", default="", help="项目根目录（log_library / face_library 所在）")
+    parser.add_argument("--task-id", default="")
+    parser.add_argument("--storage-root", default="")
     parser.add_argument("--snapshot-window-sec", type=float, default=5.0)
+    parser.add_argument("--enter-face-hunt-max-sec", type=float, default=10.0)
+    parser.add_argument("--enter-face-grace-sec", type=float, default=4.0)
+    parser.add_argument("--min-face-det-score", type=float, default=0.45)
+    parser.add_argument("--track-prefix", default="yolo")
     args = parser.parse_args()
 
     video_path = resolve_video_path("", args.uploaded_file_name, args.profile_root)
@@ -89,14 +91,14 @@ def main():
     door_gate = PerTrackDoorGate(line_y, tight_margin, exit_margin)
     track_hits: Dict[int, int] = {}
     cross_pending: Dict[int, tuple[str, int]] = {}
-    window_frames = max(1, int(round(args.snapshot_window_sec * fps)))
     frame_area = width * height
-    track_shots: Dict[int, TrackBestShots] = {}
     capture_enabled = bool(args.task_id and args.storage_root)
     if capture_enabled:
         print(
-            f"[capture] enabled task={args.task_id} window={args.snapshot_window_sec}s "
-            f"storage={args.storage_root}"
+            f"[capture] event-level task={args.task_id} window={args.snapshot_window_sec}s "
+            f"hunt={args.enter_face_hunt_max_sec}s grace={args.enter_face_grace_sec}s "
+            f"storage={args.storage_root}",
+            flush=True,
         )
     print(
         f"[roi] ref={REF_WIDTH}x{REF_HEIGHT} video={width}x{height} "
@@ -113,6 +115,7 @@ def main():
     last_event_frame: Dict[str, int] = {}
     track_stats: Dict[int, dict] = {}
     events: List[dict] = []
+    pending_captures: List[Tuple[dict, VideoEventCapture]] = []
     frame_idx = 0
     enter_count = 0
     exit_count = 0
@@ -132,8 +135,41 @@ def main():
         verbose=False,
     )
 
+    def flush_expired_captures(video_sec: float) -> None:
+        if not pending_captures:
+            return
+        still_pending: List[Tuple[dict, VideoEventCapture]] = []
+        for ev, cap in pending_captures:
+            if cap.expired(video_sec):
+                finalize_video_event_capture(cap, args.storage_root, args.task_id, ev)
+            else:
+                still_pending.append((ev, cap))
+        pending_captures[:] = still_pending
+
+    def start_event_capture(ev: dict, tid_i: int, event_type: str, video_sec: float) -> None:
+        if not capture_enabled:
+            return
+        track_key = f"{args.track_prefix}_{tid_i}"
+        cap = VideoEventCapture(
+            track_key=track_key,
+            event_type=event_type,
+            tid_i=tid_i,
+            line_y=line_y,
+            window_sec=args.snapshot_window_sec,
+            min_face_det_score=args.min_face_det_score,
+            enter_face_hunt_max_sec=args.enter_face_hunt_max_sec,
+            enter_face_grace_sec=args.enter_face_grace_sec,
+            video_started_at=video_sec,
+        )
+        pending_captures.append((ev, cap))
+        print(
+            f"[capture-start] {track_key} {event_type} at {video_sec}s",
+            flush=True,
+        )
+
     for result in results_iter:
         frame_idx += 1
+        video_sec = time_sec(frame_idx, fps)
         frame = result.orig_img.copy()
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 180, 255), 2)
         cv2.line(frame, (x1, line_y), (x2, line_y), (255, 255, 0), 2)
@@ -149,6 +185,8 @@ def main():
         )
 
         persons_in_roi = 0
+        track_boxes: Dict[int, tuple] = {}
+        track_confs: Dict[int, float] = {}
         boxes = result.boxes
         if boxes is not None and boxes.id is not None:
             xyxy = boxes.xyxy.cpu().numpy()
@@ -167,25 +205,18 @@ def main():
                 if in_roi:
                     persons_in_roi += 1
 
+                track_boxes[tid_i] = xyxy[idx]
+                track_confs[tid_i] = conf
                 track_hits[tid_i] = track_hits.get(tid_i, 0) + 1
 
                 is_new_track = tid_i not in seen_tracks
                 if is_new_track:
                     seen_tracks.add(tid_i)
                     prev_cy[tid_i] = cy
-                    old = cy
                     door_gate.on_new_track(tid_i, cy)
-                    if capture_enabled:
-                        end_f = frame_idx + window_frames
-                        track_shots[tid_i] = TrackBestShots(tid_i, frame_idx, end_f)
                 else:
                     old = prev_cy[tid_i]
                     prev_cy[tid_i] = cy
-
-                if capture_enabled:
-                    shot = track_shots.get(tid_i)
-                    if shot is not None and shot.in_window(frame_idx):
-                        shot.update(result.orig_img, xyxy[idx], conf, frame_area)
 
                 st = track_stats.get(tid_i)
                 if st is None:
@@ -210,7 +241,7 @@ def main():
                 event_type = None
                 inferred = False
                 if frame_idx - last_event_frame.get(cooldown_key, -999999) >= args.event_cooldown_frames:
-                    event_type = door_gate.try_cross(cross_pending, tid_i, old, cy, 1)
+                    event_type = door_gate.try_cross(cross_pending, tid_i, old if not is_new_track else cy, cy, 1)
                     if event_type is None:
                         infer_ev = door_gate.try_infer_enter(tid_i, cy, is_new_track)
                         if infer_ev:
@@ -221,16 +252,17 @@ def main():
                             event_type = None
                     if event_type:
                         door_gate.commit(tid_i, event_type)
-                        events.append(
-                            {
-                                "frame": frame_idx,
-                                "timeSec": time_sec(frame_idx, fps),
-                                "trackId": tid_i,
-                                "eventType": event_type,
-                                "confidence": round(conf, 3),
-                                "inferred": inferred,
-                            }
-                        )
+                        ev = {
+                            "frame": frame_idx,
+                            "timeSec": video_sec,
+                            "trackId": tid_i,
+                            "trackKey": f"{args.track_prefix}_{tid_i}",
+                            "eventType": event_type,
+                            "confidence": round(conf, 3),
+                            "inferred": inferred,
+                        }
+                        events.append(ev)
+                        start_event_capture(ev, tid_i, event_type, video_sec)
                         if event_type == "enter":
                             enter_count += 1
                         else:
@@ -263,6 +295,14 @@ def main():
                     cv2.LINE_AA,
                 )
 
+        if capture_enabled and pending_captures:
+            for _ev, cap in pending_captures:
+                box = track_boxes.get(cap.tid_i)
+                if box is not None:
+                    conf = track_confs.get(cap.tid_i, 0.0)
+                    cap.try_sample(result.orig_img, box, conf, frame_area)
+            flush_expired_captures(video_sec)
+
         max_persons = max(max_persons, persons_in_roi)
         cv2.putText(
             frame,
@@ -280,14 +320,14 @@ def main():
 
     writer.release()
 
-    capture_tracks = []
-    if capture_enabled and track_shots:
-        capture_tracks = save_track_snapshots(
-            track_shots,
-            args.task_id,
-            args.storage_root,
-            window_sec=args.snapshot_window_sec,
-        )
+    final_sec = time_sec(frame_idx, fps)
+    for ev, cap in list(pending_captures):
+        finalize_video_event_capture(cap, args.storage_root, args.task_id, ev)
+    pending_captures.clear()
+
+    capture_events = sum(
+        1 for ev in events if ev.get("faceImageUrl") or ev.get("bodyImageUrl") or ev.get("snapshotUrl")
+    )
 
     tracks = []
     for tid, st in sorted(track_stats.items(), key=lambda x: x[0]):
@@ -327,7 +367,8 @@ def main():
         "exitCount": exit_count,
         "events": events,
         "tracks": tracks,
-        "captureTracks": capture_tracks,
+        "captureMode": "event",
+        "captureEventCount": capture_events,
         "debugVideoPath": args.debug_out.replace("\\", "/"),
         "debugVideoUrl": args.debug_video_url,
     }
@@ -335,7 +376,7 @@ def main():
     with open(args.result_json, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    print(f"[done] frames={frame_idx} tracks={len(tracks)} events={len(events)} captures={len(capture_tracks)}")
+    print(f"[done] frames={frame_idx} tracks={len(tracks)} events={len(events)} captures={capture_events}")
     print(f"[result] {args.result_json}")
     print(f"[debug] {args.debug_out}")
 

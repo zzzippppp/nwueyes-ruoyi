@@ -7,7 +7,7 @@ public class BehaviorLogImportFromVideoBo
 {
     private String taskId;
 
-    private Long locationId;
+    private Long cameraId;
 
     public String getTaskId()
     {
@@ -19,13 +19,19 @@ public class BehaviorLogImportFromVideoBo
         this.taskId = taskId;
     }
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
+    public void setCameraId(Long cameraId)
+    {
+        this.cameraId = cameraId;
+    }
+
+    /** 兼容前端旧字段 locationId */
     public void setLocationId(Long locationId)
     {
-        this.locationId = locationId;
+        this.cameraId = locationId;
     }
 }

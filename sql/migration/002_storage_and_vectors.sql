@@ -29,10 +29,8 @@ CREATE INDEX IF NOT EXISTS idx_behavior_logs_session_id ON behavior_logs (sessio
 CREATE INDEX IF NOT EXISTS idx_behavior_logs_quality_flag ON behavior_logs (quality_flag);
 
 ALTER TABLE presence_sessions
-    ADD COLUMN IF NOT EXISTS enter_face_embedding vector(512),
     ADD COLUMN IF NOT EXISTS enter_body_embedding vector(512);
 
-COMMENT ON COLUMN presence_sessions.enter_face_embedding IS '进门时刻人脸向量，512 维';
 COMMENT ON COLUMN presence_sessions.enter_body_embedding IS '进门时刻体态向量，出门比对用，512 维';
 
 CREATE INDEX IF NOT EXISTS idx_ps_enter_body_embedding

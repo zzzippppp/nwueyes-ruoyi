@@ -16,7 +16,7 @@ public class PresenceLiveStartBo
     /** lan_rtsp | cloud_hls */
     private String streamMode;
 
-    private Long locationId;
+    private Long cameraId;
 
     private Integer lineY;
 
@@ -54,14 +54,14 @@ public class PresenceLiveStartBo
         this.streamMode = streamMode;
     }
 
-    public Long getLocationId()
+    public Long getCameraId()
     {
-        return locationId;
+        return cameraId;
     }
 
-    public void setLocationId(Long locationId)
+    public void setCameraId(Long cameraId)
     {
-        this.locationId = locationId;
+        this.cameraId = cameraId;
     }
 
     public Integer getLineY()

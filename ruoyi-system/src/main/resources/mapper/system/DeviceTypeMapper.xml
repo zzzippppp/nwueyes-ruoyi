@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.DeviceTypeMapper">
+
+    <select id="selectDeviceTypeList" resultType="com.ruoyi.system.domain.vo.DeviceTypeVo">
+        SELECT
+            id,
+            type_code AS typeCode,
+            type_name AS typeName,
+            remark,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM device_type
+        ORDER BY id ASC
+    </select>
+
+    <select id="selectDeviceTypeById" resultType="com.ruoyi.system.domain.vo.DeviceTypeVo">
+        SELECT
+            id,
+            type_code AS typeCode,
+            type_name AS typeName,
+            remark,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM device_type
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insertDeviceType" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO device_type (type_code, type_name, remark, created_at, updated_at)
+        VALUES (#{typeCode}, #{typeName}, #{remark}, NOW(), NOW())
+    </insert>
+
+    <update id="updateDeviceType">
+        UPDATE device_type
+        SET type_name = #{typeName},
+            remark = #{remark},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteDeviceTypeById">
+        DELETE FROM device_type WHERE id = #{id}
+    </delete>
+
+    <select id="countCameraByTypeId" resultType="int">
+        SELECT COUNT(1) FROM camera WHERE type_id = #{typeId}
+    </select>
+
+</mapper>

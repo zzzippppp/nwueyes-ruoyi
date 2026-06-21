@@ -177,7 +177,7 @@ class LiveEventCapture:
     min_face_det_score: float = 0.45
     enter_inside_px: int = 15
     enter_face_hunt_max_sec: float = 10.0
-    enter_face_grace_sec: float = 1.5
+    enter_face_grace_sec: float = 4.0
     started_at: float = field(default_factory=time.time)
     deadline: float = field(default_factory=lambda: 0.0)
     face_first_seen_at: Optional[float] = None
@@ -186,6 +186,8 @@ class LiveEventCapture:
     best_body_score: float = -1.0
     best_face_img: Optional[np.ndarray] = None
     best_body_img: Optional[np.ndarray] = None
+    best_face_frame_img: Optional[np.ndarray] = None
+    best_body_frame_img: Optional[np.ndarray] = None
 
     def __post_init__(self):
         if self.deadline <= 0:
@@ -212,14 +214,24 @@ class LiveEventCapture:
         if face is not None and fs > self.best_face_score:
             self.best_face_score = fs
             self.best_face_img = face.copy()
+            self.best_face_frame_img = frame.copy()
             if self.face_first_seen_at is None:
                 self.face_first_seen_at = time.time()
             updated = True
         if body is not None and bs > self.best_body_score:
             self.best_body_score = bs
             self.best_body_img = body.copy()
+            self.best_body_frame_img = frame.copy()
             updated = True
         return updated
+
+    def finalize_snapshot_frame(self) -> Optional[np.ndarray]:
+        """返回用于向量择优的那一帧整幅监控画面。"""
+        if self.event_type == "enter":
+            if self.best_face_frame_img is not None:
+                return self.best_face_frame_img
+            return self.best_body_frame_img
+        return self.best_body_frame_img
 
     def expired(self, now: float) -> bool:
         if self.event_type == "enter":
@@ -248,6 +260,166 @@ class LiveEventCapture:
         face = self.best_face_img if self.event_type == "enter" else None
         body = self.best_body_img
         return face, body
+
+
+@dataclass
+class VideoEventCapture:
+    """视频分析用过线抓拍：与 LiveEventCapture 逻辑一致，但用视频时间轴（秒）而非墙钟。"""
+
+    track_key: str
+    event_type: str
+    tid_i: int
+    line_y: int
+    window_sec: float
+    min_face_det_score: float = 0.45
+    enter_inside_px: int = 15
+    enter_face_hunt_max_sec: float = 10.0
+    enter_face_grace_sec: float = 4.0
+    video_started_at: float = 0.0
+    face_first_seen_at: Optional[float] = None
+    samples: int = 0
+    best_face_score: float = -1.0
+    best_body_score: float = -1.0
+    best_face_img: Optional[np.ndarray] = None
+    best_body_img: Optional[np.ndarray] = None
+    best_face_frame_img: Optional[np.ndarray] = None
+    best_body_frame_img: Optional[np.ndarray] = None
+
+    def try_sample(self, frame, box, conf: float, frame_area: int) -> bool:
+        h, w = frame.shape[:2]
+        _, _, _, y2 = _clamp_box(box, w, h)
+        foot_y = float(y2)
+        if self.event_type == "exit" and foot_y > self.line_y + self.enter_inside_px:
+            return False
+        face, body, fs, bs = extract_quality_crops(
+            frame, box, conf, frame_area,
+            min_face_det_score=self.min_face_det_score,
+            require_face=False,
+        )
+        self.samples += 1
+        updated = False
+        if face is not None and fs > self.best_face_score:
+            self.best_face_score = fs
+            self.best_face_img = face.copy()
+            self.best_face_frame_img = frame.copy()
+            if self.face_first_seen_at is None:
+                self.face_first_seen_at = self.video_started_at
+            updated = True
+        if body is not None and bs > self.best_body_score:
+            self.best_body_score = bs
+            self.best_body_img = body.copy()
+            self.best_body_frame_img = frame.copy()
+            updated = True
+        return updated
+
+    def finalize_snapshot_frame(self) -> Optional[np.ndarray]:
+        if self.event_type == "enter":
+            if self.best_face_frame_img is not None:
+                return self.best_face_frame_img
+            return self.best_body_frame_img
+        return self.best_body_frame_img
+
+    def expired(self, video_sec: float) -> bool:
+        if self.event_type == "enter":
+            if video_sec >= self.video_started_at + self.enter_face_hunt_max_sec:
+                return True
+            if self.best_face_img is not None and self.face_first_seen_at is not None:
+                return video_sec >= self.face_first_seen_at + self.enter_face_grace_sec
+            return False
+        return video_sec >= self.video_started_at + self.window_sec
+
+    def quality_flag(self) -> str:
+        if self.event_type == "enter":
+            if self.best_face_img is not None:
+                return "normal"
+            if self.best_body_img is not None:
+                return "low"
+            return "missing"
+        if self.best_body_img is not None:
+            return "normal"
+        return "missing"
+
+    def finalize_images(self) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        face = self.best_face_img if self.event_type == "enter" else None
+        body = self.best_body_img
+        return face, body
+
+
+def save_analyze_event_snapshot(
+    storage_root: str,
+    task_id: str,
+    track_key: str,
+    event_type: str,
+    face_img,
+    body_img,
+    frame_img=None,
+) -> tuple[str, str, str]:
+    """视频过线事件落盘，返回 face_url, body_url, snapshot_url。"""
+    import os
+    import time as _time
+
+    now = _time.localtime()
+    yyyy = _time.strftime("%Y", now)
+    mm = _time.strftime("%m", now)
+    dd = _time.strftime("%d", now)
+    face_dir = os.path.join(storage_root, "log_library", "face", yyyy, mm, dd)
+    body_dir = os.path.join(storage_root, "log_library", "body", yyyy, mm, dd)
+    snap_dir = os.path.join(storage_root, "snapshot_library", yyyy, mm, dd)
+    os.makedirs(face_dir, exist_ok=True)
+    os.makedirs(body_dir, exist_ok=True)
+    os.makedirs(snap_dir, exist_ok=True)
+    date_url = f"{yyyy}/{mm}/{dd}"
+    ts = int(_time.time() * 1000)
+    face_url = ""
+    body_url = ""
+    snapshot_url = ""
+    safe_key = track_key.replace("/", "_")
+    if face_img is not None and face_img.size > 0 and event_type == "enter":
+        face_name = f"analyze_{task_id}_{safe_key}_{event_type}_{ts}_face.jpg"
+        cv2.imwrite(os.path.join(face_dir, face_name), face_img)
+        face_url = f"/dashboard/storage/file/log/face/{date_url}/{face_name}"
+    if body_img is not None and body_img.size > 0:
+        body_name = f"analyze_{task_id}_{safe_key}_{event_type}_{ts}_body.jpg"
+        cv2.imwrite(os.path.join(body_dir, body_name), body_img)
+        body_url = f"/dashboard/storage/file/log/body/{date_url}/{body_name}"
+    if frame_img is not None and getattr(frame_img, "size", 0) > 0:
+        snap_name = f"analyze_{task_id}_{safe_key}_{event_type}_{ts}_snap.jpg"
+        cv2.imwrite(
+            os.path.join(snap_dir, snap_name),
+            frame_img,
+            [int(cv2.IMWRITE_JPEG_QUALITY), 92],
+        )
+        snapshot_url = f"/dashboard/storage/file/snapshot/{date_url}/{snap_name}"
+    return face_url, body_url, snapshot_url
+
+
+def finalize_video_event_capture(
+    capture: VideoEventCapture,
+    storage_root: str,
+    task_id: str,
+    event: dict,
+) -> None:
+    face_img, body_img = capture.finalize_images()
+    quality = capture.quality_flag()
+    face_url, body_url, snapshot_url = save_analyze_event_snapshot(
+        storage_root,
+        task_id,
+        capture.track_key,
+        capture.event_type,
+        face_img,
+        body_img,
+        capture.finalize_snapshot_frame(),
+    )
+    event["faceImageUrl"] = face_url
+    event["bodyImageUrl"] = body_url
+    event["snapshotUrl"] = snapshot_url
+    event["qualityFlag"] = quality
+    event["captureSamples"] = capture.samples
+    print(
+        f"[capture-done] {capture.track_key} {capture.event_type} samples={capture.samples} "
+        f"face={'yes' if face_url else 'no'} body={'yes' if body_url else 'no'} quality={quality}",
+        flush=True,
+    )
 
 
 def save_track_snapshots(
@@ -318,8 +490,9 @@ def save_live_event_snapshot(
     event_type: str,
     face_img,
     body_img,
-) -> tuple[str, str]:
-    """直播过线事件落盘，返回 face/body URL。"""
+    frame_img=None,
+) -> tuple[str, str, str]:
+    """直播过线事件落盘，返回 face_url, body_url, snapshot_url。"""
     import os
     import time as _time
 
@@ -329,12 +502,15 @@ def save_live_event_snapshot(
     dd = _time.strftime("%d", now)
     face_dir = os.path.join(storage_root, "log_library", "face", yyyy, mm, dd)
     body_dir = os.path.join(storage_root, "log_library", "body", yyyy, mm, dd)
+    snap_dir = os.path.join(storage_root, "snapshot_library", yyyy, mm, dd)
     os.makedirs(face_dir, exist_ok=True)
     os.makedirs(body_dir, exist_ok=True)
+    os.makedirs(snap_dir, exist_ok=True)
     date_url = f"{yyyy}/{mm}/{dd}"
     ts = int(_time.time() * 1000)
     face_url = ""
     body_url = ""
+    snapshot_url = ""
     if face_img is not None and face_img.size > 0 and event_type == "enter":
         face_name = f"live_{task_id}_{track_key}_{ts}_face.jpg"
         cv2.imwrite(os.path.join(face_dir, face_name), face_img)
@@ -343,4 +519,12 @@ def save_live_event_snapshot(
         body_name = f"live_{task_id}_{track_key}_{ts}_body.jpg"
         cv2.imwrite(os.path.join(body_dir, body_name), body_img)
         body_url = f"/dashboard/storage/file/log/body/{date_url}/{body_name}"
-    return face_url, body_url
+    if frame_img is not None and getattr(frame_img, "size", 0) > 0:
+        snap_name = f"live_{task_id}_{track_key}_{ts}_snap.jpg"
+        cv2.imwrite(
+            os.path.join(snap_dir, snap_name),
+            frame_img,
+            [int(cv2.IMWRITE_JPEG_QUALITY), 92],
+        )
+        snapshot_url = f"/dashboard/storage/file/snapshot/{date_url}/{snap_name}"
+    return face_url, body_url, snapshot_url
