@@ -26,6 +26,16 @@ psql -U postgres -d nwueyes -f ruoyi/sql/nwueyes_full_install.sql
 cd ruoyi/sql && python _gen_full_install.py
 ```
 
+### 方式三：导入本地演示快照（可选）
+
+全量安装完成后，可导入仓库内业务数据 + 图片，便于联调考勤/行为日志 UI：
+
+```bash
+psql -U postgres -d nwueyes -f ruoyi/sql/seed_local_snapshot.sql
+```
+
+图片与测试视频在 **nwueyes 根仓库**（与 `ruoyi/` 同级）的 `face_library/`、`log_library/`、`snapshot_library/`、`uploadPath/` 等；`storageRoot` 指向该目录即可。
+
 ### 方式二：分步 migration（已有流程）
 
 ```bash
