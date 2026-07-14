@@ -149,16 +149,70 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
     @Override
 
     public List<BehaviorLogItemVo> listBehaviorLogs(LocalDate statDate, LocalDate beginDate, LocalDate endDate,
-            Long cameraId, String eventType, Integer limit)
+            Long cameraId, String eventType, String beginTime, String endTime, Integer limit)
     {
         StatDateRange range = StatDateRange.resolve(statDate, beginDate, endDate);
+        String[] normalizedTimes = normalizeTimeRange(beginTime, endTime);
+        if (normalizedTimes[0] != null && normalizedTimes[1] != null)
+        {
+            range = StatDateRange.ofSingleDay(range.getBeginDate());
+        }
         List<BehaviorLogItemVo> rows = behaviorLogMapper.selectBehaviorLogList(range.getBeginDate(), range.getEndDate(),
-                cameraId, eventType, limit == null ? 500 : limit);
+                cameraId, eventType, normalizedTimes[0], normalizedTimes[1], limit == null ? 500 : limit);
 
         enrichVideoAnalysis(rows);
 
         return rows;
 
+    }
+
+    private String[] normalizeTimeRange(String beginTime, String endTime)
+    {
+        if (StringUtils.isEmpty(beginTime) || StringUtils.isEmpty(endTime))
+        {
+            return new String[] { null, null };
+        }
+        int beginMinutes = parseTimeToMinutes(beginTime, 0);
+        int endMinutes = parseTimeToMinutes(endTime, 23 * 60 + 59);
+        if (beginMinutes > endMinutes)
+        {
+            int tmp = beginMinutes;
+            beginMinutes = endMinutes;
+            endMinutes = tmp;
+        }
+        return new String[] { formatMinutesToTime(beginMinutes), formatMinutesToTime(endMinutes) };
+    }
+
+    private int parseTimeToMinutes(String timeText, int fallback)
+    {
+        if (StringUtils.isEmpty(timeText))
+        {
+            return fallback;
+        }
+        String[] parts = timeText.trim().split(":");
+        if (parts.length < 2)
+        {
+            return fallback;
+        }
+        try
+        {
+            int hour = Integer.parseInt(parts[0]);
+            int minute = Integer.parseInt(parts[1]);
+            hour = Math.max(0, Math.min(23, hour));
+            minute = Math.max(0, Math.min(59, minute));
+            return hour * 60 + minute;
+        }
+        catch (NumberFormatException ex)
+        {
+            return fallback;
+        }
+    }
+
+    private String formatMinutesToTime(int minutes)
+    {
+        int hour = Math.max(0, Math.min(23, minutes / 60));
+        int minute = Math.max(0, Math.min(59, minutes % 60));
+        return String.format("%02d:%02d", hour, minute);
     }
 
     private void enrichVideoAnalysis(List<BehaviorLogItemVo> rows)
@@ -589,7 +643,11 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
 
 
-        Long cameraId = bo.getCameraId() == null ? ingestProperties.getDefaultCameraId() : bo.getCameraId();
+        Long cameraId = bo.getCameraId();
+        if (cameraId == null && task.getCameraId() != null)
+        {
+            cameraId = task.getCameraId();
+        }
 
         JsonNode root;
 
@@ -607,6 +665,15 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
             throw new IllegalStateException("解析分析结果失败: " + ex.getMessage());
 
+        }
+
+        if (cameraId == null && root.has("cameraId") && !root.get("cameraId").isNull())
+        {
+            cameraId = root.get("cameraId").asLong();
+        }
+        if (cameraId == null)
+        {
+            cameraId = ingestProperties.getDefaultCameraId();
         }
 
 

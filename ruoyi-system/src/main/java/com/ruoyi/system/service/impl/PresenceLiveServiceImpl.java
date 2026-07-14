@@ -18,7 +18,12 @@ import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.uuid.IdUtils;
 import com.ruoyi.system.config.PresenceIngestProperties;
 import com.ruoyi.system.domain.bo.PresenceLiveStartBo;
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
+import com.ruoyi.system.domain.vo.CameraConfigVo;
+import com.ruoyi.system.domain.vo.PresenceLiveProbeVo;
 import com.ruoyi.system.domain.vo.PresenceLiveTaskVo;
+import com.ruoyi.system.storage.PresenceStoragePaths;
 import com.ruoyi.system.service.IEzvizScreenService;
 import com.ruoyi.system.service.IPresenceLiveService;
 
@@ -59,33 +64,29 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     @Autowired
     private com.ruoyi.system.service.ICameraService cameraService;
 
+    @Autowired
+    private PresenceStoragePaths storagePaths;
+
     @Override
     public synchronized PresenceLiveTaskVo startLive(PresenceLiveStartBo bo)
     {
+        applyCameraFromBo(bo);
         // 1. 参数校验
         validateStartBo(bo);
         // 2. 保证同时只有一个直播任务：先停掉旧任务
         stopActiveIfRunning();
 
         int channelNo = bo.getChannelNo() == null || bo.getChannelNo() < 1 ? 1 : bo.getChannelNo();
-        Long cameraId = cameraService.resolveOrCreateCamera(bo.getDeviceSerial(), channelNo,
-                "监控点位-" + bo.getDeviceSerial());
-        bo.setCameraId(cameraId);
+        Long cameraId = bo.getCameraId();
+        if (cameraId == null)
+        {
+            cameraId = cameraService.resolveOrCreateCamera(bo.getDeviceSerial(), channelNo,
+                    "监控点位-" + bo.getDeviceSerial());
+            bo.setCameraId(cameraId);
+        }
 
         com.ruoyi.system.domain.vo.CameraConfigVo cameraConfig = cameraService.getCameraConfig(cameraId);
-        if (bo.getLineY() == null && cameraConfig != null && cameraConfig.getLineY() != null)
-        {
-            bo.setLineY(cameraConfig.getLineY());
-        }
-        if (StringUtils.isEmpty(bo.getRoi()) && cameraConfig != null && !StringUtils.isEmpty(cameraConfig.getRoi()))
-        {
-            bo.setRoi(cameraConfig.getRoi());
-        }
-        if (StringUtils.isEmpty(bo.getValidCode()) && cameraConfig != null
-                && !StringUtils.isEmpty(cameraConfig.getVerifyCode()))
-        {
-            bo.setValidCode(cameraConfig.getVerifyCode());
-        }
+        mergeCameraConfigIntoBo(bo, cameraConfig);
 
         // 3. 归一化拉流模式，解析拉流地址和协议
         String streamMode = normalizeStreamMode(bo.getStreamMode());
@@ -200,6 +201,122 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         return task;
     }
 
+    @Override
+    public PresenceLiveProbeVo captureProbeFrame(PresenceLiveStartBo bo)
+    {
+        applyCameraFromBo(bo);
+        validateStartBo(bo);
+
+        int channelNo = bo.getChannelNo() == null || bo.getChannelNo() < 1 ? 1 : bo.getChannelNo();
+        Long cameraId = bo.getCameraId();
+        if (cameraId == null)
+        {
+            cameraId = cameraService.resolveOrCreateCamera(bo.getDeviceSerial(), channelNo,
+                    "监控点位-" + bo.getDeviceSerial());
+            bo.setCameraId(cameraId);
+        }
+
+        CameraConfigVo cameraConfig = cameraService.getCameraConfig(cameraId);
+        mergeCameraConfigIntoBo(bo, cameraConfig);
+
+        String streamMode = normalizeStreamMode(bo.getStreamMode());
+        boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equals(streamMode);
+        String localIp = cameraConfig != null ? cameraConfig.getIpAddr() : null;
+        String streamUrl = ezvizScreenService.resolveAnalyzeStreamUrl(bo.getDeviceSerial(), bo.getChannelNo(), streamMode,
+                bo.getValidCode(), localIp);
+        String streamProtocol = resolveStreamProtocol(streamUrl, lanRtsp);
+
+        try
+        {
+            storagePaths.ensureBaseDirectories();
+        }
+        catch (Exception ex)
+        {
+            throw new ServiceException("创建标定目录失败: " + ex.getMessage());
+        }
+
+        PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
+        List<String> command = new ArrayList<>();
+        command.add(Objects.requireNonNullElse(ingestProperties.getReplayPythonCommand(), "python"));
+        command.add("-u");
+        command.add(Objects.requireNonNullElse(ingestProperties.getProbeScriptPath(), "scripts/capture_stream_probe.py"));
+        command.add("--stream-url");
+        command.add(streamUrl);
+        command.add("--stream-protocol");
+        command.add(streamProtocol);
+        command.add("--storage-root");
+        command.add(ingestProperties.resolveStorageRoot());
+        command.add("--camera-id");
+        command.add(String.valueOf(cameraId));
+        command.add("--line-y");
+        command.add(String.valueOf(bo.getLineY() == null ? ingestProperties.getReplayLineY() : bo.getLineY()));
+        command.add("--roi");
+        command.add(StringUtils.isEmpty(bo.getRoi()) ? ingestProperties.getReplayRoi() : bo.getRoi());
+        command.add("--open-timeout-sec");
+        if (lanRtsp)
+        {
+            command.add(String.valueOf(Math.max(live.getRtspOpenTimeoutSec(), live.getStreamOpenTimeoutSec())));
+        }
+        else
+        {
+            command.add(String.valueOf(Math.max(live.getCloudOpenTimeoutSec(), live.getCloudStreamOpenTimeoutSec())));
+        }
+        command.add("--rtsp-buffer-size");
+        command.add(String.valueOf(live.getRtspBufferSize()));
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.directory(new File(ingestProperties.getWorkspaceRoot()));
+        pb.environment().put("PYTHONUNBUFFERED", "1");
+        pb.redirectErrorStream(true);
+
+        try
+        {
+            Process process = pb.start();
+            long waitSec = lanRtsp
+                    ? (long) Math.ceil(Math.max(live.getRtspOpenTimeoutSec(), live.getStreamOpenTimeoutSec()) + 30)
+                    : (long) Math.ceil(Math.max(live.getCloudOpenTimeoutSec(), live.getCloudStreamOpenTimeoutSec()) + 30);
+            String output = readProcessOutput(process, waitSec);
+            int exitCode = process.waitFor();
+            JSONObject json = parseProbeJson(output);
+            if (exitCode != 0 || json == null || !Boolean.TRUE.equals(json.getBoolean("ok")))
+            {
+                String msg = json != null ? json.getString("message") : null;
+                if (StringUtils.isEmpty(msg))
+                {
+                    msg = resolveProbeFailureMessage(exitCode, output, lanRtsp);
+                }
+                throw new ServiceException(msg);
+            }
+
+            PresenceLiveProbeVo vo = new PresenceLiveProbeVo();
+            vo.setCameraId(cameraId);
+            String rawFileName = json.getString("rawFileName");
+            String overlayFileName = json.getString("overlayFileName");
+            if (!StringUtils.isEmpty(rawFileName))
+            {
+                vo.setRawImageUrl(storagePaths.buildProbeFileUrl(rawFileName));
+            }
+            if (!StringUtils.isEmpty(overlayFileName))
+            {
+                vo.setOverlayImageUrl(storagePaths.buildProbeFileUrl(overlayFileName));
+            }
+            vo.setWidth(json.getInteger("width"));
+            vo.setHeight(json.getInteger("height"));
+            vo.setLineY(json.getInteger("lineY"));
+            vo.setRoi(json.getString("roi"));
+            vo.setMessage("抽帧成功，请使用原图标注门线（坐标系 1920×1080）");
+            return vo;
+        }
+        catch (ServiceException ex)
+        {
+            throw ex;
+        }
+        catch (Exception ex)
+        {
+            throw new ServiceException("抽帧失败: " + ex.getMessage());
+        }
+    }
+
     /**
      * 根据任务 ID 获取任务详情
      * <p>
@@ -257,14 +374,136 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
      */
     private void validateStartBo(PresenceLiveStartBo bo)
     {
-        if (bo == null || StringUtils.isEmpty(bo.getDeviceSerial()))
+        if (bo == null)
         {
-            throw new IllegalArgumentException("deviceSerial 不能为空");
+            throw new IllegalArgumentException("启动参数不能为空");
+        }
+        if (bo.getCameraId() == null && StringUtils.isEmpty(bo.getDeviceSerial()))
+        {
+            throw new IllegalArgumentException("请选择识别摄像头或填写设备序列号");
         }
         if (StringUtils.isEmpty(bo.getStreamMode()))
         {
             throw new IllegalArgumentException("streamMode 不能为空");
         }
+    }
+
+    private void applyCameraFromBo(PresenceLiveStartBo bo)
+    {
+        if (bo == null || bo.getCameraId() == null)
+        {
+            return;
+        }
+        CameraConfigVo cfg = cameraService.getCameraConfig(bo.getCameraId());
+        if (cfg == null)
+        {
+            throw new ServiceException("摄像头不存在: " + bo.getCameraId());
+        }
+        if (!StringUtils.isEmpty(cfg.getSerialNo()))
+        {
+            bo.setDeviceSerial(cfg.getSerialNo());
+        }
+        if (bo.getChannelNo() == null || bo.getChannelNo() < 1)
+        {
+            bo.setChannelNo(cfg.getChannelNo() == null ? 1 : cfg.getChannelNo());
+        }
+        mergeCameraConfigIntoBo(bo, cfg);
+    }
+
+    private void mergeCameraConfigIntoBo(PresenceLiveStartBo bo, CameraConfigVo cameraConfig)
+    {
+        if (bo == null || cameraConfig == null)
+        {
+            return;
+        }
+        if (bo.getLineY() == null && cameraConfig.getLineY() != null)
+        {
+            bo.setLineY(cameraConfig.getLineY());
+        }
+        if (StringUtils.isEmpty(bo.getRoi()) && !StringUtils.isEmpty(cameraConfig.getRoi()))
+        {
+            bo.setRoi(cameraConfig.getRoi());
+        }
+        if (StringUtils.isEmpty(bo.getValidCode()) && !StringUtils.isEmpty(cameraConfig.getVerifyCode()))
+        {
+            bo.setValidCode(cameraConfig.getVerifyCode());
+        }
+    }
+
+    private String readProcessOutput(Process process, long timeoutSec) throws Exception
+    {
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)))
+        {
+            long deadline = System.currentTimeMillis() + timeoutSec * 1000L;
+            while (System.currentTimeMillis() < deadline)
+            {
+                while (reader.ready())
+                {
+                    String line = reader.readLine();
+                    if (line != null)
+                    {
+                        sb.append(line).append('\n');
+                    }
+                }
+                if (!process.isAlive())
+                {
+                    String line;
+                    while ((line = reader.readLine()) != null)
+                    {
+                        sb.append(line).append('\n');
+                    }
+                    break;
+                }
+                Thread.sleep(200L);
+            }
+        }
+        return sb.toString();
+    }
+
+    private JSONObject parseProbeJson(String output)
+    {
+        if (StringUtils.isEmpty(output))
+        {
+            return null;
+        }
+        String[] lines = output.split("\n");
+        for (int i = lines.length - 1; i >= 0; i--)
+        {
+            String line = lines[i].trim();
+            if (line.startsWith("{") && line.endsWith("}"))
+            {
+                try
+                {
+                    return JSON.parseObject(line);
+                }
+                catch (Exception ignored)
+                {
+                    // try previous line
+                }
+            }
+        }
+        return null;
+    }
+
+    private String resolveProbeFailureMessage(int exitCode, String output, boolean lanRtsp)
+    {
+        if (exitCode == 3)
+        {
+            return lanRtsp ? "局域网 RTSP 抽帧失败：请确认同网、验证码与 RTSP 已开启"
+                    : "公网直播抽帧超时：请确认设备在线、验证码正确，或改用局域网 RTSP";
+        }
+        if (exitCode == 4)
+        {
+            throwCodecNotH264();
+        }
+        String tail = output == null ? "" : output.trim();
+        if (tail.length() > 200)
+        {
+            tail = tail.substring(tail.length() - 200);
+        }
+        return "抽帧失败（exitCode=" + exitCode + "）" + (StringUtils.isEmpty(tail) ? "" : ": " + tail);
     }
 
     /**

@@ -4,6 +4,28 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.CameraMapper">
 
+    <select id="selectMonitorList" resultType="com.ruoyi.system.domain.vo.CameraConfigVo">
+        SELECT
+            c.id,
+            c.device_code AS deviceCode,
+            c.device_name AS deviceName,
+            c.type_id AS typeId,
+            c.install_location AS installLocation,
+            c.ip_addr AS ipAddr,
+            c.serial_no AS serialNo,
+            c.channel_no AS channelNo,
+            c.verify_code AS verifyCode,
+            c.online_status::text AS onlineStatus,
+            c.line_y AS lineY,
+            c.roi,
+            c.ref_width AS refWidth,
+            c.ref_height AS refHeight
+        FROM camera c
+        WHERE c.serial_no IS NOT NULL
+          AND TRIM(c.serial_no) &lt;&gt; ''
+        ORDER BY c.id
+    </select>
+
     <select id="selectById" resultType="com.ruoyi.system.domain.vo.CameraConfigVo">
         SELECT
             id,

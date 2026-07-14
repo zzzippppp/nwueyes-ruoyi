@@ -87,6 +87,21 @@ public class PresenceStoragePaths
         return storageRoot().resolve("log_library");
     }
 
+    public Path probeLibraryRoot()
+    {
+        return logLibraryRoot().resolve("probe");
+    }
+
+    public String buildProbeFileUrl(String fileName)
+    {
+        return LOG_URL_PREFIX + "/log/probe/" + safeFileName(fileName);
+    }
+
+    public Path resolveProbeFile(String fileName)
+    {
+        return probeLibraryRoot().resolve(safeFileName(fileName)).normalize();
+    }
+
     public Path faceLibraryRoot()
     {
         return storageRoot().resolve("face_library");
@@ -210,6 +225,7 @@ public class PresenceStoragePaths
     public void ensureBaseDirectories() throws IOException
     {
         Files.createDirectories(logLibraryRoot());
+        Files.createDirectories(probeLibraryRoot());
         Files.createDirectories(snapshotLibraryRoot());
         Files.createDirectories(faceLibraryRoot());
         Files.createDirectories(bodyLibraryRoot());

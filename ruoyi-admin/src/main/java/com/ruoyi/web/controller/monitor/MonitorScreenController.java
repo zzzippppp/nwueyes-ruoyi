@@ -73,4 +73,13 @@ public class MonitorScreenController
         PresenceLiveTaskVo task = presenceLiveService.getTask(taskId);
         return AjaxResult.success(task);
     }
+
+    /**
+     * 拉主码流抽一帧，用于门线标定。
+     */
+    @PostMapping("/probe-frame")
+    public AjaxResult captureProbeFrame(@RequestBody PresenceLiveStartBo bo)
+    {
+        return AjaxResult.success(presenceLiveService.captureProbeFrame(bo));
+    }
 }

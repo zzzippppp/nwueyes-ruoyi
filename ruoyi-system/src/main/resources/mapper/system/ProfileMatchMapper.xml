@@ -52,9 +52,4 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         VALUES (#{personId}, #{imageUrl}, NOW())
     </insert>
 
-    <insert id="insertBodyProfileImageOnly">
-        INSERT INTO body_profiles (person_id, image_url, is_primary, created_at)
-        VALUES (#{personId}, #{imageUrl}, TRUE, NOW())
-    </insert>
-
 </mapper>

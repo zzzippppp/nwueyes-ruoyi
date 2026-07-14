@@ -4,6 +4,28 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ruoyi.system.mapper.BehaviorLogMapper">
 
+    <sql id="eventTimeStart">
+        <choose>
+            <when test="beginTime != null and beginTime != ''">
+                (#{beginDate}::timestamp + CAST(#{beginTime} AS time))
+            </when>
+            <otherwise>
+                #{beginDate}::date
+            </otherwise>
+        </choose>
+    </sql>
+
+    <sql id="eventTimeEnd">
+        <choose>
+            <when test="endTime != null and endTime != ''">
+                (#{beginDate}::timestamp + CAST(#{endTime} AS time) + INTERVAL '1 minute')
+            </when>
+            <otherwise>
+                (#{endDate}::date + INTERVAL '1 day')
+            </otherwise>
+        </choose>
+    </sql>
+
     <select id="selectBehaviorLogList" resultType="com.ruoyi.system.domain.vo.BehaviorLogItemVo">
         SELECT
             bl.id,
@@ -35,8 +57,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         LEFT JOIN persons p ON p.id = bl.person_id
         <where>
             <if test="beginDate != null and endDate != null">
-                bl.event_time &gt;= #{beginDate}::date
-                AND bl.event_time &lt; (#{endDate}::date + INTERVAL '1 day')
+                bl.event_time &gt;= <include refid="eventTimeStart"/>
+                AND bl.event_time &lt; <include refid="eventTimeEnd"/>
             </if>
             <if test="cameraId != null">
                 AND bl.camera_id = #{cameraId}

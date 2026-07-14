@@ -30,6 +30,13 @@ public class StorageFileController
     @Autowired
     private PresenceStoragePaths storagePaths;
 
+    @GetMapping("/log/probe/{fileName:.+}")
+    @Anonymous
+    public ResponseEntity<Resource> serveProbe(@PathVariable("fileName") String fileName) throws Exception
+    {
+        return serve(storagePaths.resolveProbeFile(fileName), storagePaths.probeLibraryRoot());
+    }
+
     @GetMapping("/log/face/{year}/{month}/{day}/{fileName:.+}")
     @Anonymous
     public ResponseEntity<Resource> serveLogFace(@PathVariable("year") int year,
