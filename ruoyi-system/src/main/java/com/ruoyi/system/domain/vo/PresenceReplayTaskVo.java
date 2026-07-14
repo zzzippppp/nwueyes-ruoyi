@@ -22,6 +22,9 @@ public class PresenceReplayTaskVo
     /** YOLO 分析结果 JSON（仅 analyze 任务） */
     private String resultJson;
 
+    /** 分析/回放关联的摄像头 ID */
+    private Long cameraId;
+
     public String getTaskId()
     {
         return taskId;
@@ -100,5 +103,15 @@ public class PresenceReplayTaskVo
     public void setResultJson(String resultJson)
     {
         this.resultJson = resultJson;
+    }
+
+    public Long getCameraId()
+    {
+        return cameraId;
+    }
+
+    public void setCameraId(Long cameraId)
+    {
+        this.cameraId = cameraId;
     }
 }

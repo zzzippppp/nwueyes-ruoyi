@@ -120,6 +120,11 @@ public class PresenceIngestProperties
     private String liveScriptPath = "scripts/live_stream_worker_yolo.py";
 
     /**
+     * 直播抽帧标定脚本（相对 workspaceRoot）
+     */
+    private String probeScriptPath = "scripts/capture_stream_probe.py";
+
+    /**
      * 直播识别相关参数
      */
     private LiveIngest live = new LiveIngest();
@@ -1063,6 +1068,16 @@ public class PresenceIngestProperties
     public void setLiveScriptPath(String liveScriptPath)
     {
         this.liveScriptPath = liveScriptPath;
+    }
+
+    public String getProbeScriptPath()
+    {
+        return probeScriptPath;
+    }
+
+    public void setProbeScriptPath(String probeScriptPath)
+    {
+        this.probeScriptPath = probeScriptPath;
     }
 
     public LiveIngest getLive()

@@ -20,6 +20,7 @@ import com.ruoyi.system.config.PresenceIngestProperties;
 import com.ruoyi.system.domain.bo.PresenceLiveStartBo;
 import com.ruoyi.system.domain.vo.EzvizDeviceVo;
 import com.ruoyi.system.domain.vo.EzvizScreenConfigVo;
+import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IEzvizScreenService;
 
 /**
@@ -48,6 +49,9 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     @Autowired
     private PresenceIngestProperties ingestProperties;
 
+    @Autowired
+    private ICameraService cameraService;
+
     private volatile String cachedAccessToken;
 
     private volatile long cachedAccessTokenExpireAt;
@@ -62,6 +66,7 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         configVo.setAccessToken(getAccessToken());
         configVo.setDefaultChannelNo(resolveDefaultChannelNo());
         configVo.setDevices(listDevices(configVo.getAccessToken()));
+        configVo.setCameras(cameraService.listMonitorCameras());
         return configVo;
     }
 
@@ -123,15 +128,11 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     }
 
     /**
-     * 局域网 RTSP：萤石云取流 API 仅支持 protocol 1~4，RTSP 需直连摄像头局域网地址。
+     * 局域网 RTSP：按摄像头从 camera 表 ip_addr + verify_code 组装；无 IP 时回退萤石设备信息 API。
      */
     private String resolveLanRtspUrl(String deviceSerial, String validCode, int channelNo, String localIpOverride)
     {
         PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
-        if (!StringUtils.isEmpty(live.getLanRtspUrl()))
-        {
-            return resolveConfiguredLanRtspUrl(live.getLanRtspUrl().trim(), validCode);
-        }
 
         if (!StringUtils.isEmpty(localIpOverride))
         {

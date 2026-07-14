@@ -37,10 +37,12 @@ public class BehaviorLogController
             @RequestParam(value = "endDate", required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
             @RequestParam(value = "cameraId", required = false) Long cameraId,
             @RequestParam(value = "eventType", required = false) String eventType,
+            @RequestParam(value = "beginTime", required = false) String beginTime,
+            @RequestParam(value = "endTime", required = false) String endTime,
             @RequestParam(value = "limit", required = false, defaultValue = "500") Integer limit)
     {
         return AjaxResult.success(behaviorLogService.listBehaviorLogs(statDate, beginDate, endDate, cameraId, eventType,
-                limit));
+                beginTime, endTime, limit));
     }
 
     @PostMapping("/import-from-video")

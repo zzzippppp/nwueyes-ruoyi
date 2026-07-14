@@ -15,7 +15,7 @@ def detect_segment_cross(
     y1: float,
     line_y: int,
     exit_margin: int = 0,
-    min_dy: float = 4.0,
+    min_dy: float = 2.0,
 ) -> Optional[str]:
     """
     脚点轨迹线段穿门槛线 + 方向判定。
@@ -124,11 +124,12 @@ def tight_infer_margin(
     return max(28, min(scaled, cap))
 
 
-def exit_hysteresis_margin(height: int, ref_height: int = 1080, base_px: int = 28) -> int:
-    """出门滞回：脚点需明显高于过线，避免门槛处转身误报 exit。"""
+def exit_hysteresis_margin(height: int, ref_height: int = 1080, base_px: int = 12) -> int:
+    """出门滞回：脚点需明显高于过线，避免门槛处转身误报 exit（原 base=28、下限 18 易挡慢速出门）。"""
     if height <= 0:
         return base_px
-    return max(18, int(round(base_px * height / ref_height)))
+    scaled = int(round(base_px * height / ref_height))
+    return max(4, scaled)
 
 
 def min_track_hits_for_event(height: int, ref_height: int = 1080, base_hits: int = 8) -> int:
@@ -139,7 +140,7 @@ def min_track_hits_for_event(height: int, ref_height: int = 1080, base_hits: int
 
 
 class PerTrackDoorGate:
-    """C：每条 ByteTrack 轨迹维护 outside/inside + 脚点历史，禁止同轨迹重复 enter。"""
+    """C：每条 ByteTrack 轨迹维护 outside/inside + 脚点历史；B：全局门内计数支持换 ID 出门。"""
 
     def __init__(
         self,
@@ -147,7 +148,7 @@ class PerTrackDoorGate:
         tight_margin: int,
         exit_margin: int = 0,
         history_len: int = 8,
-        min_segment_dy: float = 4.0,
+        min_segment_dy: float = 2.0,
     ):
         self.line_y = line_y
         self.tight_margin = tight_margin
@@ -159,6 +160,10 @@ class PerTrackDoorGate:
         self._silent_from_other: Dict[int, bool] = {}
         self._foot_history: Dict[int, Deque[float]] = {}
         self._seg_watermark: Dict[int, int] = {}
+        self._global_inside_count = 0
+
+    def global_inside_count(self) -> int:
+        return self._global_inside_count
 
     def side(self, track_id: int) -> str:
         return self._side.get(track_id, SIDE_OUTSIDE)
@@ -183,9 +188,12 @@ class PerTrackDoorGate:
             return
         if cy > self.line_y + self.tight_margin:
             self.mark_inside_silent(track_id, from_other=False)
+            reason = "deep_first_seen"
+            if self._global_inside_count > 0:
+                reason = f"deep_first_seen globalInside={self._global_inside_count}"
             print(
                 f"[gate] silent-inside track={track_id} cy={cy:.0f} lineY={self.line_y} "
-                f"margin={self.tight_margin} reason=deep_first_seen",
+                f"margin={self.tight_margin} reason={reason}",
                 flush=True,
             )
 
@@ -200,12 +208,18 @@ class PerTrackDoorGate:
                     return None
             elif self._silent_from_other.get(track_id, False):
                 return None
+            elif not self.had_real_enter(track_id) and self._global_inside_count <= 0:
+                return None
         return event
 
     def _exit_margin_for(self, track_id: int) -> int:
         if not self.had_real_enter(track_id) and not self._silent_from_other.get(track_id, False):
             return 0
-        return self.exit_margin
+        margin = self.exit_margin
+        # 门内仍有人（含本轨迹 enter 未 exit）：放宽滞回，避免 508→505 等慢速出门被挡
+        if self._global_inside_count > 0:
+            margin = min(margin, 1)
+        return margin
 
     def observe_foot(self, track_id: int, cy: float, *, seed_y: Optional[float] = None) -> None:
         """记录脚点；seed_y 用于首帧与上一采样点衔接。"""
@@ -289,9 +303,11 @@ class PerTrackDoorGate:
             self._side[track_id] = SIDE_INSIDE
             self._real_enter[track_id] = True
             self._silent_from_other.pop(track_id, None)
+            self._global_inside_count += 1
         elif event == "exit":
             self._side[track_id] = SIDE_OUTSIDE
             self._silent_from_other.pop(track_id, None)
+            self._global_inside_count = max(0, self._global_inside_count - 1)
         hist = self._foot_history.get(track_id)
         if hist:
             self._foot_history[track_id] = deque([hist[-1]], maxlen=self.history_len)

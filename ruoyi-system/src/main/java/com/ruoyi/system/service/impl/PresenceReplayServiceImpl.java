@@ -38,8 +38,11 @@ import com.ruoyi.system.config.PresenceIngestProperties;
 
 import com.ruoyi.system.domain.bo.PresenceReplayStartBo;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.ruoyi.system.domain.vo.CameraConfigVo;
 import com.ruoyi.system.domain.vo.PresenceReplayTaskVo;
-
+import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IPresenceReplayService;
 
 import jakarta.annotation.Resource;
@@ -60,11 +63,13 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
     private final Map<String, ReplayTaskState> taskMap = new ConcurrentHashMap<>();
 
-
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
-
     private PresenceIngestProperties ingestProperties;
+
+    @Autowired
+    private ICameraService cameraService;
 
 
 
@@ -186,9 +191,13 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         }
 
+        applyCameraConfig(bo);
+
         String taskId = prefix + "_" + IdUtils.fastSimpleUUID();
 
         ReplayTaskState state = new ReplayTaskState(taskId);
+
+        state.cameraId = bo.getCameraId();
 
         taskMap.put(taskId, state);
 
@@ -308,6 +317,27 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
 
 
+    private void applyCameraConfig(PresenceReplayStartBo bo)
+    {
+        if (bo == null || bo.getCameraId() == null)
+        {
+            return;
+        }
+        CameraConfigVo cfg = cameraService.getCameraConfig(bo.getCameraId());
+        if (cfg == null)
+        {
+            throw new IllegalArgumentException("摄像头不存在: " + bo.getCameraId());
+        }
+        if (bo.getLineY() == null && cfg.getLineY() != null)
+        {
+            bo.setLineY(cfg.getLineY());
+        }
+        if (StringUtils.isEmpty(bo.getRoi()) && !StringUtils.isEmpty(cfg.getRoi()))
+        {
+            bo.setRoi(cfg.getRoi());
+        }
+    }
+
     private void loadAnalyzeResult(ReplayTaskState state) throws Exception
 
     {
@@ -325,6 +355,20 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
         }
 
         state.resultJson = Files.readString(resultFile.toPath(), StandardCharsets.UTF_8);
+
+        if (state.cameraId != null)
+
+        {
+
+            ObjectNode root = (ObjectNode) objectMapper.readTree(state.resultJson);
+
+            root.put("cameraId", state.cameraId);
+
+            state.resultJson = objectMapper.writeValueAsString(root);
+
+            Files.writeString(resultFile.toPath(), state.resultJson, StandardCharsets.UTF_8);
+
+        }
 
     }
 
@@ -528,6 +572,8 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         private volatile String resultJson;
 
+        private volatile Long cameraId;
+
         private final StringBuilder logs = new StringBuilder();
 
 
@@ -581,6 +627,8 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
             vo.setLogTail(logs.toString());
 
             vo.setResultJson(resultJson);
+
+            vo.setCameraId(cameraId);
 
             return vo;
 

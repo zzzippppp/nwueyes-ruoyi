@@ -12,7 +12,7 @@ import com.ruoyi.system.domain.vo.PresenceTrackProcessResultVo;
 public interface IBehaviorLogService
 {
     List<BehaviorLogItemVo> listBehaviorLogs(LocalDate statDate, LocalDate beginDate, LocalDate endDate,
-            Long cameraId, String eventType, Integer limit);
+            Long cameraId, String eventType, String beginTime, String endTime, Integer limit);
 
     BehaviorLogImportResultVo importFromVideoAnalyze(BehaviorLogImportFromVideoBo bo);
 

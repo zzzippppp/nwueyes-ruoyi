@@ -9,7 +9,8 @@ public interface BehaviorLogMapper
 {
     List<BehaviorLogItemVo> selectBehaviorLogList(@Param("beginDate") LocalDate beginDate,
             @Param("endDate") LocalDate endDate, @Param("cameraId") Long cameraId,
-            @Param("eventType") String eventType, @Param("limit") Integer limit);
+            @Param("eventType") String eventType, @Param("beginTime") String beginTime,
+            @Param("endTime") String endTime, @Param("limit") Integer limit);
 
     int insertBehaviorLog(BehaviorLogItemVo row);
 
