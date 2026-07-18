@@ -80,4 +80,145 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         WHERE id = #{cameraId}
     </update>
 
+    <select id="selectDeviceInfoList" parameterType="com.ruoyi.system.domain.DeviceInfo"
+            resultType="com.ruoyi.system.domain.DeviceInfo">
+        SELECT
+            c.id,
+            c.device_code AS deviceCode,
+            c.device_name AS deviceName,
+            c.type_id AS typeId,
+            t.type_name AS typeName,
+            c.install_location AS installLocation,
+            c.ip_addr AS ipAddr,
+            c.serial_no AS serialNo,
+            c.channel_no AS channelNo,
+            c.verify_code AS verifyCode,
+            c.online_status::text AS onlineStatus,
+            c.line_y AS lineY,
+            c.roi,
+            c.ref_width AS refWidth,
+            c.ref_height AS refHeight,
+            c.created_at AS createdAt,
+            c.updated_at AS updatedAt
+        FROM camera c
+        LEFT JOIN device_type t ON t.id = c.type_id
+        <where>
+            <if test="deviceName != null and deviceName != ''">
+                AND c.device_name LIKE concat('%', #{deviceName}, '%')
+            </if>
+            <if test="serialNo != null and serialNo != ''">
+                AND c.serial_no LIKE concat('%', #{serialNo}, '%')
+            </if>
+            <if test="deviceCode != null and deviceCode != ''">
+                AND c.device_code LIKE concat('%', #{deviceCode}, '%')
+            </if>
+            <if test="onlineStatus != null and onlineStatus != ''">
+                AND c.online_status::text = #{onlineStatus}
+            </if>
+            <if test="typeId != null">
+                AND c.type_id = #{typeId}
+            </if>
+        </where>
+        ORDER BY c.id ASC
+    </select>
+
+    <select id="selectDeviceInfoById" resultType="com.ruoyi.system.domain.DeviceInfo">
+        SELECT
+            c.id,
+            c.device_code AS deviceCode,
+            c.device_name AS deviceName,
+            c.type_id AS typeId,
+            t.type_name AS typeName,
+            c.install_location AS installLocation,
+            c.ip_addr AS ipAddr,
+            c.serial_no AS serialNo,
+            c.channel_no AS channelNo,
+            c.verify_code AS verifyCode,
+            c.online_status::text AS onlineStatus,
+            c.line_y AS lineY,
+            c.roi,
+            c.ref_width AS refWidth,
+            c.ref_height AS refHeight,
+            c.created_at AS createdAt,
+            c.updated_at AS updatedAt
+        FROM camera c
+        LEFT JOIN device_type t ON t.id = c.type_id
+        WHERE c.id = #{id}
+    </select>
+
+    <select id="checkDeviceNameUnique" resultType="com.ruoyi.system.domain.DeviceInfo">
+        SELECT id, device_name AS deviceName
+        FROM camera
+        WHERE device_name = #{deviceName}
+        LIMIT 1
+    </select>
+
+    <select id="checkSerialNoUnique" resultType="com.ruoyi.system.domain.DeviceInfo">
+        SELECT id, serial_no AS serialNo
+        FROM camera
+        WHERE serial_no = #{serialNo}
+        LIMIT 1
+    </select>
+
+    <select id="checkDeviceCodeUnique" resultType="com.ruoyi.system.domain.DeviceInfo">
+        SELECT id, device_code AS deviceCode
+        FROM camera
+        WHERE device_code = #{deviceCode}
+        LIMIT 1
+    </select>
+
+    <insert id="insertDeviceInfo" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO camera (
+            device_code, device_name, type_id, install_location, ip_addr,
+            channel_no, serial_no, verify_code, online_status,
+            line_y, roi, ref_width, ref_height, created_at, updated_at
+        ) VALUES (
+            #{deviceCode}, #{deviceName}, #{typeId}, #{installLocation}, #{ipAddr},
+            #{channelNo}, #{serialNo}, COALESCE(#{verifyCode}, ''),
+            CAST(COALESCE(#{onlineStatus}, 'offline') AS camera_online_status),
+            #{lineY}, #{roi}, COALESCE(#{refWidth}, 1920), COALESCE(#{refHeight}, 1080),
+            NOW(), NOW()
+        )
+    </insert>
+
+    <update id="updateDeviceInfo">
+        UPDATE camera
+        SET device_code = #{deviceCode},
+            device_name = #{deviceName},
+            type_id = #{typeId},
+            install_location = #{installLocation},
+            ip_addr = #{ipAddr},
+            channel_no = #{channelNo},
+            serial_no = #{serialNo},
+            verify_code = COALESCE(#{verifyCode}, ''),
+            online_status = CAST(COALESCE(#{onlineStatus}, 'offline') AS camera_online_status),
+            line_y = #{lineY},
+            roi = #{roi},
+            ref_width = COALESCE(#{refWidth}, ref_width),
+            ref_height = COALESCE(#{refHeight}, ref_height),
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteDeviceInfoByIds">
+        DELETE FROM camera WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <select id="countBehaviorByCameraIds" resultType="int">
+        SELECT COUNT(1) FROM behavior_logs WHERE camera_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="countSessionByCameraIds" resultType="int">
+        SELECT COUNT(1) FROM presence_sessions WHERE camera_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
 </mapper>

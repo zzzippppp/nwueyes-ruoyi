@@ -3,9 +3,10 @@ package com.ruoyi.system.service.impl;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import com.ruoyi.common.constant.UserConstants;
 import com.ruoyi.common.exception.ServiceException;
 import com.ruoyi.common.utils.StringUtils;
-import com.ruoyi.system.domain.bo.DeviceTypeSaveBo;
 import com.ruoyi.system.domain.vo.DeviceTypeVo;
 import com.ruoyi.system.mapper.DeviceTypeMapper;
 import com.ruoyi.system.service.IDeviceTypeService;
@@ -17,65 +18,87 @@ public class DeviceTypeServiceImpl implements IDeviceTypeService
     private DeviceTypeMapper deviceTypeMapper;
 
     @Override
-    public List<DeviceTypeVo> listDeviceTypes()
+    public List<DeviceTypeVo> selectDeviceTypeList(DeviceTypeVo query)
     {
-        return deviceTypeMapper.selectDeviceTypeList();
+        return deviceTypeMapper.selectDeviceTypeList(query);
     }
 
     @Override
-    public DeviceTypeVo createDeviceType(DeviceTypeSaveBo bo)
+    public DeviceTypeVo selectDeviceTypeById(Long id)
     {
-        validateSaveBo(bo, true);
-        DeviceTypeVo row = new DeviceTypeVo();
-        row.setTypeCode(bo.getTypeCode().trim());
-        row.setTypeName(bo.getTypeName().trim());
-        row.setRemark(StringUtils.nvl(bo.getRemark(), ""));
-        deviceTypeMapper.insertDeviceType(row);
-        return deviceTypeMapper.selectDeviceTypeById(row.getId());
+        return deviceTypeMapper.selectDeviceTypeById(id);
     }
 
     @Override
-    public boolean updateDeviceType(Long id, DeviceTypeSaveBo bo)
+    public boolean checkTypeCodeUnique(DeviceTypeVo type)
     {
-        if (id == null || deviceTypeMapper.selectDeviceTypeById(id) == null)
+        Long id = type.getId() == null ? -1L : type.getId();
+        DeviceTypeVo existing = deviceTypeMapper.checkTypeCodeUnique(type.getTypeCode());
+        if (StringUtils.isNotNull(existing) && existing.getId().longValue() != id.longValue())
         {
-            return false;
+            return UserConstants.NOT_UNIQUE;
         }
-        validateSaveBo(bo, false);
-        DeviceTypeVo row = new DeviceTypeVo();
-        row.setId(id);
-        row.setTypeName(bo.getTypeName().trim());
-        row.setRemark(StringUtils.nvl(bo.getRemark(), ""));
-        return deviceTypeMapper.updateDeviceType(row) > 0;
+        return UserConstants.UNIQUE;
     }
 
     @Override
-    public boolean deleteDeviceType(Long id)
+    public boolean checkTypeNameUnique(DeviceTypeVo type)
     {
-        if (id == null || deviceTypeMapper.selectDeviceTypeById(id) == null)
+        Long id = type.getId() == null ? -1L : type.getId();
+        DeviceTypeVo existing = deviceTypeMapper.checkTypeNameUnique(type.getTypeName());
+        if (StringUtils.isNotNull(existing) && existing.getId().longValue() != id.longValue())
         {
-            return false;
+            return UserConstants.NOT_UNIQUE;
         }
-        if (deviceTypeMapper.countCameraByTypeId(id) > 0)
-        {
-            throw new ServiceException("该类型已被摄像头引用，无法删除");
-        }
-        return deviceTypeMapper.deleteDeviceTypeById(id) > 0;
+        return UserConstants.UNIQUE;
     }
 
-    private void validateSaveBo(DeviceTypeSaveBo bo, boolean requireCode)
+    @Override
+    public int insertDeviceType(DeviceTypeVo type)
     {
-        if (bo == null)
+        normalize(type);
+        if (type.getRemark() == null)
         {
-            throw new ServiceException("参数不能为空");
+            type.setRemark("");
         }
-        if (requireCode && StringUtils.isEmpty(bo.getTypeCode()))
+        return deviceTypeMapper.insertDeviceType(type);
+    }
+
+    @Override
+    public int updateDeviceType(DeviceTypeVo type)
+    {
+        normalize(type);
+        if (type.getRemark() == null)
         {
-            throw new ServiceException("类型编码不能为空");
+            type.setRemark("");
         }
-        if (StringUtils.isEmpty(bo.getTypeName()))
+        return deviceTypeMapper.updateDeviceType(type);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int deleteDeviceTypeByIds(Long[] ids)
+    {
+        if (ids == null || ids.length == 0)
         {
-            throw new ServiceException("类型名称不能为空");
+            return 0;
+        }
+        if (deviceTypeMapper.countCameraByTypeIds(ids) > 0)
+        {
+            throw new ServiceException("所选类型已被摄像头引用，无法删除");
+        }
+        return deviceTypeMapper.deleteDeviceTypeByIds(ids);
+    }
+
+    private void normalize(DeviceTypeVo type)
+    {
+        if (type.getTypeCode() != null)
+        {
+            type.setTypeCode(type.getTypeCode().trim());
+        }
+        if (type.getTypeName() != null)
+        {
+            type.setTypeName(type.getTypeName().trim());
         }
     }
 }
