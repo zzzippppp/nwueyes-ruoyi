@@ -24,7 +24,7 @@ import com.ruoyi.system.domain.vo.CameraConfigVo;
 import com.ruoyi.system.domain.vo.PresenceLiveProbeVo;
 import com.ruoyi.system.domain.vo.PresenceLiveTaskVo;
 import com.ruoyi.system.storage.PresenceStoragePaths;
-import com.ruoyi.system.service.IEzvizScreenService;
+import com.ruoyi.system.service.ILanPreviewService;
 import com.ruoyi.system.service.IPresenceLiveService;
 
 /**
@@ -59,7 +59,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     private PresenceIngestProperties ingestProperties;
 
     @Autowired
-    private IEzvizScreenService ezvizScreenService;
+    private ILanPreviewService lanPreviewService;
 
     @Autowired
     private com.ruoyi.system.service.ICameraService cameraService;
@@ -91,9 +91,9 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         // 3. 归一化拉流模式，解析拉流地址和协议
         String streamMode = normalizeStreamMode(bo.getStreamMode());
         boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equals(streamMode);
-        String localIp = cameraConfig != null ? cameraConfig.getIpAddr() : null;
-        String streamUrl = ezvizScreenService.resolveAnalyzeStreamUrl(bo.getDeviceSerial(), bo.getChannelNo(), streamMode,
-                bo.getValidCode(), localIp);
+        // 先把摄像头 RTSP 注册到 go2rtc，再让 Python 从本地 RTSP 出口消费。
+        // 预览、识别与抽帧因此共用同一条摄像头连接。
+        String streamUrl = lanPreviewService.ensureLocalRtsp(bo);
         String streamProtocol = resolveStreamProtocol(streamUrl, lanRtsp);
 
         // 4. 创建任务状态记录（清理历史已结束任务，避免内存堆积）
@@ -221,9 +221,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
 
         String streamMode = normalizeStreamMode(bo.getStreamMode());
         boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equals(streamMode);
-        String localIp = cameraConfig != null ? cameraConfig.getIpAddr() : null;
-        String streamUrl = ezvizScreenService.resolveAnalyzeStreamUrl(bo.getDeviceSerial(), bo.getChannelNo(), streamMode,
-                bo.getValidCode(), localIp);
+        String streamUrl = lanPreviewService.ensureLocalRtsp(bo);
         String streamProtocol = resolveStreamProtocol(streamUrl, lanRtsp);
 
         try
@@ -382,10 +380,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         {
             throw new IllegalArgumentException("请选择识别摄像头或填写设备序列号");
         }
-        if (StringUtils.isEmpty(bo.getStreamMode()))
-        {
-            throw new IllegalArgumentException("streamMode 不能为空");
-        }
+        // 空值交给 normalizeStreamMode 默认 lan_rtsp；公网模式在 normalize 阶段拒绝
     }
 
     private void applyCameraFromBo(PresenceLiveStartBo bo)
@@ -519,13 +514,13 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
      */
     private String normalizeStreamMode(String streamMode)
     {
-        if (PresenceLiveStartBo.STREAM_LAN_RTSP.equalsIgnoreCase(streamMode))
+        if (StringUtils.isEmpty(streamMode) || PresenceLiveStartBo.STREAM_LAN_RTSP.equalsIgnoreCase(streamMode))
         {
             return PresenceLiveStartBo.STREAM_LAN_RTSP;
         }
         if (PresenceLiveStartBo.STREAM_CLOUD_HLS.equalsIgnoreCase(streamMode))
         {
-            return PresenceLiveStartBo.STREAM_CLOUD_HLS;
+            throw new ServiceException("已禁用公网云转发，请使用局域网 RTSP（streamMode=lan_rtsp）");
         }
         throw new IllegalArgumentException("不支持的 streamMode: " + streamMode);
     }

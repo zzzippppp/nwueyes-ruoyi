@@ -1,16 +1,21 @@
 package com.ruoyi.system.service;
 
 import java.util.List;
-import com.ruoyi.system.domain.bo.DeviceTypeSaveBo;
 import com.ruoyi.system.domain.vo.DeviceTypeVo;
 
 public interface IDeviceTypeService
 {
-    List<DeviceTypeVo> listDeviceTypes();
+    List<DeviceTypeVo> selectDeviceTypeList(DeviceTypeVo query);
 
-    DeviceTypeVo createDeviceType(DeviceTypeSaveBo bo);
+    DeviceTypeVo selectDeviceTypeById(Long id);
 
-    boolean updateDeviceType(Long id, DeviceTypeSaveBo bo);
+    boolean checkTypeCodeUnique(DeviceTypeVo type);
 
-    boolean deleteDeviceType(Long id);
+    boolean checkTypeNameUnique(DeviceTypeVo type);
+
+    int insertDeviceType(DeviceTypeVo type);
+
+    int updateDeviceType(DeviceTypeVo type);
+
+    int deleteDeviceTypeByIds(Long[] ids);
 }

@@ -1,0 +1,19 @@
+# go2rtc 最小配置示例
+# 当前 Windows 工具: tools/go2rtc/go2rtc.exe
+# 启动（Windows）:
+#   powershell -ExecutionPolicy Bypass -File tools/go2rtc/start-go2rtc.ps1
+#
+# 业务侧会通过 API 动态注册流（cam_{cameraId}），不必在此写死摄像头 RTSP。
+# 本文件仅保证 API 可访问；streams 可留空。
+
+api:
+  listen: ":1984"
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+
+# streams: {}

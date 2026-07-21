@@ -35,8 +35,6 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
 
     private static final String DEVICE_LIST_API = "/api/lapp/device/list";
 
-    private static final String LIVE_ADDRESS_API = "/api/lapp/v2/live/address/get";
-
     private static final String DEVICE_INFO_API = "/api/lapp/device/info";
 
     private static final long TOKEN_REFRESH_BUFFER_MS = 60 * 1000L;
@@ -61,12 +59,21 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     @Override
     public EzvizScreenConfigVo getScreenConfig()
     {
-        validateConfig();
         EzvizScreenConfigVo configVo = new EzvizScreenConfigVo();
-        configVo.setAccessToken(getAccessToken());
         configVo.setDefaultChannelNo(resolveDefaultChannelNo());
-        configVo.setDevices(listDevices(configVo.getAccessToken()));
         configVo.setCameras(cameraService.listMonitorCameras());
+        // 局域网预览不依赖 accessToken；萤石 token/设备列表仅作可选在线状态补充
+        try
+        {
+            validateConfig();
+            configVo.setAccessToken(getAccessToken());
+            configVo.setDevices(listDevices(configVo.getAccessToken()));
+        }
+        catch (Exception ex)
+        {
+            configVo.setAccessToken("");
+            configVo.setDevices(new ArrayList<EzvizDeviceVo>());
+        }
         return configVo;
     }
 
@@ -84,46 +91,102 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         }
         int channel = channelNo == null || channelNo < 1 ? resolveDefaultChannelNo() : channelNo.intValue();
         boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equalsIgnoreCase(streamMode);
-        if (lanRtsp)
+        if (!lanRtsp)
         {
-            return resolveLanRtspUrl(deviceSerial, validCode, channel, localIpOverride);
+            throw new ServiceException("已禁用公网云转发，仅支持局域网 RTSP（streamMode=lan_rtsp）");
         }
-        int protocol = ingestProperties.getLive().getEzvizCloudProtocol();
-
-        Map<String, String> params = new LinkedHashMap<String, String>();
-        params.put("accessToken", getAccessToken());
-        params.put("deviceSerial", deviceSerial.trim());
-        params.put("channelNo", String.valueOf(channel));
-        params.put("protocol", String.valueOf(protocol));
-        params.put("type", "1");
-        params.put("expireTime", String.valueOf(ingestProperties.getLive().getEzvizStreamExpireSec()));
-        // 固定主码流，不再请求子码流
-        params.put("quality", "1");
-        params.put("supportH265", "0");
-        if (!StringUtils.isEmpty(validCode))
-        {
-            params.put("code", validCode.trim());
-        }
-
-        JSONObject result = requestEzvizApi(LIVE_ADDRESS_API, params);
-        JSONObject data = result.getJSONObject("data");
-        if (data == null)
-        {
-            throw new ServiceException("萤石直播地址响应缺少 data");
-        }
-        // 主码流高清地址通常在 hdUrl；优先 hdUrl 避免落到低清预览 url
-        String url = firstNotBlank(data.getString("hdUrl"), data.getString("url"), data.getString("rtmpUrl"));
-        if (StringUtils.isEmpty(url))
-        {
-            throw new ServiceException(lanRtsp ? "萤石未返回 RTSP 地址，请确认设备支持局域网 RTSP"
-                    : "萤石未返回公网直播地址，请确认设备已开启直播且验证码正确");
-        }
-        return url;
+        return resolveLanRtspUrl(deviceSerial, validCode, channel, localIpOverride);
     }
 
     @Override
     public String getOpenApiAccessToken()
     {
+        return getAccessToken();
+    }
+
+    @Override
+    public void assertDeviceBound(String deviceSerial, String verifyCode)
+    {
+        validateConfig();
+        if (StringUtils.isEmpty(deviceSerial))
+        {
+            throw new ServiceException("设备序列号不能为空");
+        }
+
+        String serial = deviceSerial.trim().toUpperCase();
+        JSONObject result = queryDeviceInfo(serial, verifyCode, false);
+        String code = result.getString("code");
+
+        // token 过期/异常时清缓存并强制换票后重试一次
+        if ("10002".equals(code))
+        {
+            clearAccessTokenCache();
+            result = queryDeviceInfo(serial, verifyCode, true);
+            code = result.getString("code");
+        }
+
+        if ("200".equals(code))
+        {
+            JSONObject data = result.getJSONObject("data");
+            String returnedSerial = data == null ? null : data.getString("deviceSerial");
+            if (StringUtils.isEmpty(returnedSerial))
+            {
+                throw new ServiceException("萤石未返回有效设备信息，请确认序列号「" + serial + "」正确");
+            }
+            return;
+        }
+
+        // 20002 设备不存在；20018 设备不属于当前账号（常见于随便填的假序列号）
+        if ("20002".equals(code) || "20018".equals(code))
+        {
+            throw new ServiceException("设备序列号「" + serial + "」未在萤石平台找到或未绑定到当前账号，请核对后重试");
+        }
+        throw new ServiceException("萤石设备校验失败：" + firstNotBlank(result.getString("msg"), "未知错误")
+                + "（code=" + code + "）");
+    }
+
+    /**
+     * 调用萤石 device/info，返回原始 JSON（含非 200 业务码，便于映射提示）。
+     */
+    private JSONObject queryDeviceInfo(String serial, String verifyCode, boolean forceRefreshToken)
+    {
+        Map<String, String> params = new LinkedHashMap<String, String>();
+        params.put("accessToken", forceRefreshToken ? refreshAccessToken() : getAccessToken());
+        params.put("deviceSerial", serial);
+        if (!StringUtils.isEmpty(verifyCode))
+        {
+            params.put("code", verifyCode.trim());
+        }
+
+        String responseText = HttpUtils.sendPost(buildRequestUrl(DEVICE_INFO_API), buildFormBody(params));
+        if (StringUtils.isEmpty(responseText))
+        {
+            throw new ServiceException("调用萤石设备校验接口失败，未获取到响应");
+        }
+
+        JSONObject result = JSON.parseObject(responseText);
+        if (result == null)
+        {
+            throw new ServiceException("萤石设备校验接口返回了无法解析的结果");
+        }
+        return result;
+    }
+
+    private void clearAccessTokenCache()
+    {
+        synchronized (tokenLock)
+        {
+            cachedAccessToken = null;
+            cachedAccessTokenExpireAt = 0L;
+        }
+    }
+
+    /**
+     * 强制重新向萤石换票（忽略本地缓存）。
+     */
+    private String refreshAccessToken()
+    {
+        clearAccessTokenCache();
         return getAccessToken();
     }
 

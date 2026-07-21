@@ -57,5 +57,11 @@ presence:
       enterFaceGraceSec: 1.5
       ezvizCloudProtocol: 4
       ezvizCloudQuality: 1
-      # 可选：局域网 RTSP（留空则只用萤石公网 FLV）
-      lanRtspUrl: ${EZVIZ_LAN_RTSP_URL:}
+      # 局域网 RTSP（识别/预览唯一拉流方式；ip/验证码从 camera 表读取）
+      lanRtspUsername: admin
+      lanRtspPort: 554
+      lanRtspStreamPath: /h264/ch1/main/av_stream
+      # go2rtc：统一拉摄像头 RTSP，再分发给浏览器与 Python。启动见 tools/go2rtc/start-go2rtc.ps1
+      go2rtcBaseUrl: ${GO2RTC_BASE_URL:http://127.0.0.1:1984}
+      go2rtcPublicBaseUrl: ${GO2RTC_PUBLIC_BASE_URL:http://127.0.0.1:1984}
+      go2rtcRtspBaseUrl: ${GO2RTC_RTSP_BASE_URL:rtsp://127.0.0.1:8554}
