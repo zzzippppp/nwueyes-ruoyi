@@ -157,6 +157,11 @@ ezviz:
 
 # 识别事件接入配置
 presence:
+  # go2rtc 随后端自启动（后端就绪后拉起本机 go2rtc；端口已被占用则跳过）
+  go2rtc:
+    autoStart: ${GO2RTC_AUTO_START:true}
+    exePath: ${GO2RTC_EXE_PATH:tools/go2rtc/go2rtc.exe}
+    configPath: ${GO2RTC_CONFIG_PATH:tools/go2rtc/go2rtc.yaml}
   ingest:
     enabled: ${PRESENCE_INGEST_ENABLED:false}
     apiKey: ${PRESENCE_INGEST_API_KEY:}
@@ -213,3 +218,6 @@ presence:
       yoloConf: ${PRESENCE_LIVE_YOLO_CONF:0.20}
       enterFaceHuntMaxSec: ${PRESENCE_ENTER_FACE_HUNT_MAX_SEC:10}
       enterFaceGraceSec: ${PRESENCE_ENTER_FACE_GRACE_SEC:4}
+      go2rtcBaseUrl: ${GO2RTC_BASE_URL:http://127.0.0.1:1984}
+      go2rtcPublicBaseUrl: ${GO2RTC_PUBLIC_BASE_URL:http://127.0.0.1:1984}
+      go2rtcRtspBaseUrl: ${GO2RTC_RTSP_BASE_URL:rtsp://127.0.0.1:8554}

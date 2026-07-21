@@ -1,0 +1,14 @@
+api:
+  listen: ":1984"
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+
+# 摄像头流由 Spring Boot 通过 /api/streams 动态注册（cam_{cameraId}）。
+# go2rtc 只有消费者连接时才会拉取上游 RTSP。
+# 请勿在此写死带验证码的 RTSP 源，避免密码随仓库泄露。
+streams: {}

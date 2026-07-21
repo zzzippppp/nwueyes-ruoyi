@@ -35,8 +35,6 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
 
     private static final String DEVICE_LIST_API = "/api/lapp/device/list";
 
-    private static final String LIVE_ADDRESS_API = "/api/lapp/v2/live/address/get";
-
     private static final String DEVICE_INFO_API = "/api/lapp/device/info";
 
     private static final long TOKEN_REFRESH_BUFFER_MS = 60 * 1000L;
@@ -61,12 +59,21 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     @Override
     public EzvizScreenConfigVo getScreenConfig()
     {
-        validateConfig();
         EzvizScreenConfigVo configVo = new EzvizScreenConfigVo();
-        configVo.setAccessToken(getAccessToken());
         configVo.setDefaultChannelNo(resolveDefaultChannelNo());
-        configVo.setDevices(listDevices(configVo.getAccessToken()));
         configVo.setCameras(cameraService.listMonitorCameras());
+        // 局域网预览不依赖 accessToken；萤石 token/设备列表仅作可选在线状态补充
+        try
+        {
+            validateConfig();
+            configVo.setAccessToken(getAccessToken());
+            configVo.setDevices(listDevices(configVo.getAccessToken()));
+        }
+        catch (Exception ex)
+        {
+            configVo.setAccessToken("");
+            configVo.setDevices(new ArrayList<EzvizDeviceVo>());
+        }
         return configVo;
     }
 
@@ -84,41 +91,11 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         }
         int channel = channelNo == null || channelNo < 1 ? resolveDefaultChannelNo() : channelNo.intValue();
         boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equalsIgnoreCase(streamMode);
-        if (lanRtsp)
+        if (!lanRtsp)
         {
-            return resolveLanRtspUrl(deviceSerial, validCode, channel, localIpOverride);
+            throw new ServiceException("已禁用公网云转发，仅支持局域网 RTSP（streamMode=lan_rtsp）");
         }
-        int protocol = ingestProperties.getLive().getEzvizCloudProtocol();
-
-        Map<String, String> params = new LinkedHashMap<String, String>();
-        params.put("accessToken", getAccessToken());
-        params.put("deviceSerial", deviceSerial.trim());
-        params.put("channelNo", String.valueOf(channel));
-        params.put("protocol", String.valueOf(protocol));
-        params.put("type", "1");
-        params.put("expireTime", String.valueOf(ingestProperties.getLive().getEzvizStreamExpireSec()));
-        // 固定主码流，不再请求子码流
-        params.put("quality", "1");
-        params.put("supportH265", "0");
-        if (!StringUtils.isEmpty(validCode))
-        {
-            params.put("code", validCode.trim());
-        }
-
-        JSONObject result = requestEzvizApi(LIVE_ADDRESS_API, params);
-        JSONObject data = result.getJSONObject("data");
-        if (data == null)
-        {
-            throw new ServiceException("萤石直播地址响应缺少 data");
-        }
-        // 主码流高清地址通常在 hdUrl；优先 hdUrl 避免落到低清预览 url
-        String url = firstNotBlank(data.getString("hdUrl"), data.getString("url"), data.getString("rtmpUrl"));
-        if (StringUtils.isEmpty(url))
-        {
-            throw new ServiceException(lanRtsp ? "萤石未返回 RTSP 地址，请确认设备支持局域网 RTSP"
-                    : "萤石未返回公网直播地址，请确认设备已开启直播且验证码正确");
-        }
-        return url;
+        return resolveLanRtspUrl(deviceSerial, validCode, channel, localIpOverride);
     }
 
     @Override

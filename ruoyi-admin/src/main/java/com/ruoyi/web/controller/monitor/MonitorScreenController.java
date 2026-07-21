@@ -9,8 +9,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.system.domain.bo.PresenceLiveStartBo;
+import com.ruoyi.system.domain.vo.LanPreviewVo;
 import com.ruoyi.system.domain.vo.PresenceLiveTaskVo;
 import com.ruoyi.system.service.IEzvizScreenService;
+import com.ruoyi.system.service.ILanPreviewService;
 import com.ruoyi.system.service.IPresenceLiveService;
 
 /**
@@ -26,8 +28,11 @@ public class MonitorScreenController
     @Autowired
     private IPresenceLiveService presenceLiveService;
 
+    @Autowired
+    private ILanPreviewService lanPreviewService;
+
     /**
-     * 获取监控大屏播放配置
+     * 获取监控大屏播放配置（摄像头列表等）
      */
     @GetMapping("/config")
     public AjaxResult getConfig()
@@ -36,7 +41,27 @@ public class MonitorScreenController
     }
 
     /**
-     * 启动萤石直播识别（拉流 + YOLO + 异步 ingest）。
+     * 启动局域网 RTSP 预览（经 go2rtc 转 WebRTC，不走萤石公网）
+     */
+    @PostMapping("/preview/start")
+    public AjaxResult startLanPreview(@RequestBody PresenceLiveStartBo bo)
+    {
+        LanPreviewVo preview = lanPreviewService.startPreview(bo);
+        return AjaxResult.success(preview);
+    }
+
+    /**
+     * 停止局域网预览并注销 go2rtc 流
+     */
+    @PostMapping("/preview/stop/{cameraId}")
+    public AjaxResult stopLanPreview(@PathVariable("cameraId") Long cameraId)
+    {
+        lanPreviewService.stopPreview(cameraId);
+        return AjaxResult.success();
+    }
+
+    /**
+     * 启动直播识别（局域网 RTSP + YOLO + 异步 ingest）。
      */
     @PostMapping("/live/start")
     public AjaxResult startLiveRecognize(@RequestBody PresenceLiveStartBo bo)

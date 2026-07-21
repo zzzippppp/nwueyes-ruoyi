@@ -203,6 +203,15 @@ public class PresenceIngestProperties
 
         private double cloudOpenTimeoutSec = 75;
 
+        /** go2rtc 服务地址（后端注册流用，如 http://127.0.0.1:1984） */
+        private String go2rtcBaseUrl = "http://127.0.0.1:1984";
+
+        /** 浏览器访问 go2rtc 的地址；为空则复用 go2rtcBaseUrl */
+        private String go2rtcPublicBaseUrl = "";
+
+        /** Python 识别/抽帧连接 go2rtc 的本地 RTSP 地址 */
+        private String go2rtcRtspBaseUrl = "rtsp://127.0.0.1:8554";
+
         public double getTargetDetectFps()
         {
             return targetDetectFps;
@@ -471,6 +480,36 @@ public class PresenceIngestProperties
         public void setLanRtspStreamPath(String lanRtspStreamPath)
         {
             this.lanRtspStreamPath = lanRtspStreamPath;
+        }
+
+        public String getGo2rtcBaseUrl()
+        {
+            return go2rtcBaseUrl;
+        }
+
+        public void setGo2rtcBaseUrl(String go2rtcBaseUrl)
+        {
+            this.go2rtcBaseUrl = go2rtcBaseUrl;
+        }
+
+        public String getGo2rtcPublicBaseUrl()
+        {
+            return go2rtcPublicBaseUrl;
+        }
+
+        public void setGo2rtcPublicBaseUrl(String go2rtcPublicBaseUrl)
+        {
+            this.go2rtcPublicBaseUrl = go2rtcPublicBaseUrl;
+        }
+
+        public String getGo2rtcRtspBaseUrl()
+        {
+            return go2rtcRtspBaseUrl;
+        }
+
+        public void setGo2rtcRtspBaseUrl(String go2rtcRtspBaseUrl)
+        {
+            this.go2rtcRtspBaseUrl = go2rtcRtspBaseUrl;
         }
     }
 
