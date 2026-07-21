@@ -25,4 +25,13 @@ public interface IEzvizScreenService
      * Return a cached OpenAPI access token for internal Ezviz service calls.
      */
     String getOpenApiAccessToken();
+
+    /**
+     * 校验序列号是否对应已绑定到当前萤石开放平台账号的真实设备。
+     * 调用萤石 /api/lapp/device/info；校验失败抛出 ServiceException。
+     *
+     * @param deviceSerial 设备序列号
+     * @param verifyCode 设备验证码（加密设备可选传入）
+     */
+    void assertDeviceBound(String deviceSerial, String verifyCode);
 }

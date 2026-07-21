@@ -127,6 +127,92 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         return getAccessToken();
     }
 
+    @Override
+    public void assertDeviceBound(String deviceSerial, String verifyCode)
+    {
+        validateConfig();
+        if (StringUtils.isEmpty(deviceSerial))
+        {
+            throw new ServiceException("设备序列号不能为空");
+        }
+
+        String serial = deviceSerial.trim().toUpperCase();
+        JSONObject result = queryDeviceInfo(serial, verifyCode, false);
+        String code = result.getString("code");
+
+        // token 过期/异常时清缓存并强制换票后重试一次
+        if ("10002".equals(code))
+        {
+            clearAccessTokenCache();
+            result = queryDeviceInfo(serial, verifyCode, true);
+            code = result.getString("code");
+        }
+
+        if ("200".equals(code))
+        {
+            JSONObject data = result.getJSONObject("data");
+            String returnedSerial = data == null ? null : data.getString("deviceSerial");
+            if (StringUtils.isEmpty(returnedSerial))
+            {
+                throw new ServiceException("萤石未返回有效设备信息，请确认序列号「" + serial + "」正确");
+            }
+            return;
+        }
+
+        // 20002 设备不存在；20018 设备不属于当前账号（常见于随便填的假序列号）
+        if ("20002".equals(code) || "20018".equals(code))
+        {
+            throw new ServiceException("设备序列号「" + serial + "」未在萤石平台找到或未绑定到当前账号，请核对后重试");
+        }
+        throw new ServiceException("萤石设备校验失败：" + firstNotBlank(result.getString("msg"), "未知错误")
+                + "（code=" + code + "）");
+    }
+
+    /**
+     * 调用萤石 device/info，返回原始 JSON（含非 200 业务码，便于映射提示）。
+     */
+    private JSONObject queryDeviceInfo(String serial, String verifyCode, boolean forceRefreshToken)
+    {
+        Map<String, String> params = new LinkedHashMap<String, String>();
+        params.put("accessToken", forceRefreshToken ? refreshAccessToken() : getAccessToken());
+        params.put("deviceSerial", serial);
+        if (!StringUtils.isEmpty(verifyCode))
+        {
+            params.put("code", verifyCode.trim());
+        }
+
+        String responseText = HttpUtils.sendPost(buildRequestUrl(DEVICE_INFO_API), buildFormBody(params));
+        if (StringUtils.isEmpty(responseText))
+        {
+            throw new ServiceException("调用萤石设备校验接口失败，未获取到响应");
+        }
+
+        JSONObject result = JSON.parseObject(responseText);
+        if (result == null)
+        {
+            throw new ServiceException("萤石设备校验接口返回了无法解析的结果");
+        }
+        return result;
+    }
+
+    private void clearAccessTokenCache()
+    {
+        synchronized (tokenLock)
+        {
+            cachedAccessToken = null;
+            cachedAccessTokenExpireAt = 0L;
+        }
+    }
+
+    /**
+     * 强制重新向萤石换票（忽略本地缓存）。
+     */
+    private String refreshAccessToken()
+    {
+        clearAccessTokenCache();
+        return getAccessToken();
+    }
+
     /**
      * 局域网 RTSP：按摄像头从 camera 表 ip_addr + verify_code 组装；无 IP 时回退萤石设备信息 API。
      */
