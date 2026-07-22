@@ -199,4 +199,34 @@ public class CameraServiceImpl implements ICameraService
             info.setVerifyCode("");
         }
     }
+
+    @Override
+    public List<CameraConfigVo> selectCameraList(CameraConfigVo camera)
+    {
+        return cameraMapper.selectCameraList(camera);
+    }
+
+    @Override
+    public int insertCamera(CameraConfigVo camera)
+    {
+        return cameraMapper.insertCameraFull(camera);
+    }
+
+    @Override
+    public int updateCamera(CameraConfigVo camera)
+    {
+        return cameraMapper.updateCameraFull(camera);
+    }
+
+    @Override
+    public int deleteCameraByIds(Long[] cameraIds)
+    {
+        return cameraMapper.deleteCameraByIds(cameraIds);
+    }
+
+    @Override
+    public CameraConfigVo selectCameraById(Long cameraId)
+    {
+        return cameraMapper.selectCameraById(cameraId);
+    }
 }

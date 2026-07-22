@@ -2,6 +2,7 @@ package com.ruoyi.system.service.impl;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,8 +15,10 @@ import com.ruoyi.system.domain.bo.DataBoardCameraUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardPersonUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardSessionUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardStrangerUpdateBo;
+import com.ruoyi.system.domain.vo.CameraConfigVo;
 import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
 import com.ruoyi.system.mapper.AttendanceDailyMapper;
+import com.ruoyi.system.mapper.CameraMapper;
 import com.ruoyi.system.mapper.DataBoardMapper;
 import com.ruoyi.system.mapper.ProfileMatchMapper;
 import com.ruoyi.system.service.IDataBoardManageService;
@@ -48,6 +51,9 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
 
     @Autowired
     private ProfileMatchMapper profileMatchMapper;
+
+    @Autowired
+    private CameraMapper cameraMapper;
 
     @Override
     public boolean updatePerson(Long personId, DataBoardPersonUpdateBo bo)
@@ -118,7 +124,7 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
     }
 
     @Override
-    public boolean updateCamera(Long cameraId, DataBoardCameraUpdateBo bo)
+    public boolean updateCameraConfig(Long cameraId, DataBoardCameraUpdateBo bo)
     {
         return dataBoardMapper.updateCamera(cameraId, bo.getDeviceName(), bo.getIsActive()) > 0;
     }
@@ -220,5 +226,35 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
             return ".jpg";
         }
         return ext;
+    }
+
+    @Override
+    public List<CameraConfigVo> selectCameraList(CameraConfigVo camera)
+    {
+        return cameraMapper.selectCameraList(camera);
+    }
+
+    @Override
+    public CameraConfigVo selectCameraById(Long cameraId)
+    {
+        return cameraMapper.selectCameraById(cameraId);
+    }
+
+    @Override
+    public int insertCamera(CameraConfigVo camera)
+    {
+        return cameraMapper.insertCameraFull(camera);
+    }
+
+    @Override
+    public int updateCamera(CameraConfigVo camera)
+    {
+        return cameraMapper.updateCameraFull(camera);
+    }
+
+    @Override
+    public int deleteCameraByIds(Long[] cameraIds)
+    {
+        return cameraMapper.deleteCameraByIds(cameraIds);
     }
 }

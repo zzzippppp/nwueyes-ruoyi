@@ -34,4 +34,14 @@ public interface IEzvizScreenService
      * @param verifyCode 设备验证码（加密设备可选传入）
      */
     void assertDeviceBound(String deviceSerial, String verifyCode);
+
+    /**
+     * 强制停止指定设备的直播流（释放萤石服务端并发名额）。
+     */
+    void forceStopLiveStream(String deviceSerial, Integer channelNo);
+
+    /**
+     * 获取 HLS 直播地址（用于前端直接播放，绕过 Ezviz SDK 的观看人数限制）。
+     */
+    String getHlsLiveUrl(String deviceSerial, Integer channelNo);
 }

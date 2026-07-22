@@ -181,6 +181,77 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         )
     </insert>
 
+    <select id="selectCameraList" resultType="com.ruoyi.system.domain.vo.CameraConfigVo">
+        SELECT
+            id,
+            device_code AS deviceCode,
+            device_name AS deviceName,
+            type_id AS typeId,
+            install_location AS installLocation,
+            ip_addr AS ipAddr,
+            serial_no AS serialNo,
+            channel_no AS channelNo,
+            verify_code AS verifyCode,
+            online_status::text AS onlineStatus,
+            line_y AS lineY,
+            roi,
+            ref_width AS refWidth,
+            ref_height AS refHeight,
+            to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createTime
+        FROM camera
+        <where>
+            <if test="deviceName != null and deviceName != ''">
+                AND device_name LIKE CONCAT('%', #{deviceName}, '%')
+            </if>
+            <if test="deviceCode != null and deviceCode != ''">
+                AND device_code LIKE CONCAT('%', #{deviceCode}, '%')
+            </if>
+            <if test="serialNo != null and serialNo != ''">
+                AND serial_no = #{serialNo}
+            </if>
+            <if test="onlineStatus != null and onlineStatus != ''">
+                AND online_status = CAST(#{onlineStatus} AS camera_online_status)
+            </if>
+            <if test="typeId != null">
+                AND type_id = #{typeId}
+            </if>
+        </where>
+        ORDER BY id DESC
+    </select>
+
+    <select id="selectCameraById" resultType="com.ruoyi.system.domain.vo.CameraConfigVo">
+        SELECT
+            id,
+            device_code AS deviceCode,
+            device_name AS deviceName,
+            type_id AS typeId,
+            install_location AS installLocation,
+            ip_addr AS ipAddr,
+            serial_no AS serialNo,
+            channel_no AS channelNo,
+            verify_code AS verifyCode,
+            online_status::text AS onlineStatus,
+            line_y AS lineY,
+            roi,
+            ref_width AS refWidth,
+            ref_height AS refHeight,
+            to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createTime
+        FROM camera
+        WHERE id = #{cameraId}
+    </select>
+
+    <insert id="insertCameraFull">
+        INSERT INTO camera (
+            device_code, device_name, type_id, install_location, ip_addr,
+            serial_no, channel_no, verify_code, online_status,
+            created_at, updated_at
+        ) VALUES (
+            #{deviceCode}, #{deviceName}, #{typeId}, #{installLocation}, #{ipAddr},
+            #{serialNo}, #{channelNo}, #{verifyCode}, CAST(#{onlineStatus} AS camera_online_status),
+            NOW(), NOW()
+        )
+    </insert>
+
     <update id="updateDeviceInfo">
         UPDATE camera
         SET device_code = #{deviceCode},
@@ -196,6 +267,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             roi = #{roi},
             ref_width = COALESCE(#{refWidth}, ref_width),
             ref_height = COALESCE(#{refHeight}, ref_height),
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateCameraFull">
+        UPDATE camera
+        SET device_name = #{deviceName},
+            type_id = #{typeId},
+            install_location = #{installLocation},
+            ip_addr = #{ipAddr},
+            serial_no = #{serialNo},
+            channel_no = #{channelNo},
+            verify_code = #{verifyCode},
+            online_status = CAST(#{onlineStatus} AS camera_online_status),
             updated_at = NOW()
         WHERE id = #{id}
     </update>
@@ -221,4 +306,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         </foreach>
     </select>
 
+    <delete id="deleteCameraByIds">
+        DELETE FROM camera
+        WHERE id IN
+        <foreach collection="cameraIds" item="cameraId" open="(" separator="," close=")">
+            #{cameraId}
+        </foreach>
+    </delete>
 </mapper>

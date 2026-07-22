@@ -33,6 +33,8 @@ public class CameraConfigVo
 
     private Integer refHeight;
 
+    private String createTime;
+
     public Long getId()
     {
         return id;
@@ -182,5 +184,15 @@ public class CameraConfigVo
     public void setRefHeight(Integer refHeight)
     {
         this.refHeight = refHeight;
+    }
+
+    public String getCreateTime()
+    {
+        return createTime;
+    }
+
+    public void setCreateTime(String createTime)
+    {
+        this.createTime = createTime;
     }
 }

@@ -3,6 +3,7 @@ package com.ruoyi.web.controller.dashboard;
 import java.time.LocalDate;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,13 +21,16 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.annotation.Anonymous;
+import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.domain.bo.DataBoardSessionFilterBo;
 import com.ruoyi.system.domain.bo.DataBoardCameraUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardPersonUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardSessionUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardStrangerUpdateBo;
+import com.ruoyi.system.domain.vo.CameraConfigVo;
 import com.ruoyi.system.domain.vo.DataBoardSummaryVo;
 import com.ruoyi.system.storage.PresenceStoragePaths;
 import com.ruoyi.system.service.IDataBoardService;
@@ -37,7 +41,7 @@ import com.ruoyi.system.service.IDataBoardManageService;
  */
 @RestController
 @RequestMapping("/dashboard/data-board")
-public class DataBoardController
+public class DataBoardController extends BaseController
 {
     @Autowired
     private IDataBoardService dataBoardService;
@@ -138,7 +142,39 @@ public class DataBoardController
     @PutMapping("/cameras/{cameraId}")
     public AjaxResult updateCamera(@PathVariable("cameraId") Long cameraId, @RequestBody DataBoardCameraUpdateBo bo)
     {
-        return dataBoardManageService.updateCamera(cameraId, bo) ? AjaxResult.success() : AjaxResult.error("更新失败");
+        return dataBoardManageService.updateCameraConfig(cameraId, bo) ? AjaxResult.success() : AjaxResult.error("更新失败");
+    }
+
+    @GetMapping("/cameras/list")
+    public TableDataInfo listCameras(CameraConfigVo camera)
+    {
+        startPage();
+        List<CameraConfigVo> list = dataBoardManageService.selectCameraList(camera);
+        return getDataTable(list);
+    }
+
+    @GetMapping("/cameras/{cameraId}")
+    public AjaxResult getCamera(@PathVariable Long cameraId)
+    {
+        return success(dataBoardManageService.selectCameraById(cameraId));
+    }
+
+    @PostMapping("/cameras")
+    public AjaxResult addCamera(@RequestBody CameraConfigVo camera)
+    {
+        return toAjax(dataBoardManageService.insertCamera(camera));
+    }
+
+    @PutMapping("/cameras")
+    public AjaxResult editCamera(@RequestBody CameraConfigVo camera)
+    {
+        return toAjax(dataBoardManageService.updateCamera(camera));
+    }
+
+    @DeleteMapping("/cameras/{cameraIds}")
+    public AjaxResult removeCameras(@PathVariable Long[] cameraIds)
+    {
+        return toAjax(dataBoardManageService.deleteCameraByIds(cameraIds));
     }
 
     @PostMapping("/persons/upload-face")

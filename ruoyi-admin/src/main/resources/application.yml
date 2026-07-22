@@ -7,7 +7,7 @@ ruoyi:
   # 版权年份
   copyrightYear: 2026
   # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
-  profile: ${NWUEYES_UPLOAD_PATH:D:/ruoyi/uploadPath}
+  profile: ${NWUEYES_UPLOAD_PATH:./data/uploadPath}
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证
@@ -80,7 +80,7 @@ spring:
       # 数据库索引
       database: 0
       # 密码
-      password:
+      password: difyai123456
       # 连接超时时间
       timeout: 10s
       lettuce:
@@ -151,8 +151,8 @@ xss:
 # 萤石开放平台配置
 ezviz:
   baseUrl: https://open.ys7.com
-  appKey: ${EZVIZ_APP_KEY:}
-  appSecret: ${EZVIZ_APP_SECRET:}
+  appKey: ${EZVIZ_APP_KEY:f202d6c2be564c948e3910c14d83b85d}
+  appSecret: ${EZVIZ_APP_SECRET:ff9b8ea98de91e17cac9842aa75662a6}
   defaultChannelNo: ${EZVIZ_DEFAULT_CHANNEL_NO:1}
 
 # 识别事件接入配置
@@ -166,18 +166,18 @@ presence:
     enabled: ${PRESENCE_INGEST_ENABLED:false}
     apiKey: ${PRESENCE_INGEST_API_KEY:}
     defaultCameraId: ${PRESENCE_INGEST_DEFAULT_LOCATION_ID:1}
-    workspaceRoot: ${PRESENCE_REPLAY_WORKSPACE_ROOT:E:/nwueyes/ruoyi}
+    workspaceRoot: ${PRESENCE_REPLAY_WORKSPACE_ROOT:./ruoyi}
     replayPythonCommand: ${PRESENCE_REPLAY_PYTHON:python}
     replayScriptPath: ${PRESENCE_REPLAY_SCRIPT:scripts/video_replay_worker_yolo.py}
     analyzeScriptPath: ${PRESENCE_ANALYZE_SCRIPT:scripts/video_analyze_yolo.py}
     captureScriptPath: ${PRESENCE_CAPTURE_SCRIPT:scripts/capture_best_snapshots.py}
-    storageRoot: ${PRESENCE_STORAGE_ROOT:E:/nwueyes}
+    storageRoot: ${PRESENCE_STORAGE_ROOT:./data}
     snapshotWindowSec: ${PRESENCE_SNAPSHOT_WINDOW_SEC:5}
     embedScriptPath: ${PRESENCE_EMBED_SCRIPT:scripts/embed_features.py}
     faceEmbedModel: ${PRESENCE_FACE_EMBED_MODEL:buffalo_l}
     bodyEmbedModel: ${PRESENCE_BODY_EMBED_MODEL:osnet_x0_25}
     faceMinDetScore: ${PRESENCE_FACE_MIN_DET_SCORE:0.45}
-    replayProfileRoot: ${PRESENCE_REPLAY_PROFILE_ROOT:D:/ruoyi/uploadPath}
+    replayProfileRoot: ${PRESENCE_REPLAY_PROFILE_ROOT:./data/uploadPath}
     replayIngestBaseUrl: ${PRESENCE_REPLAY_INGEST_BASE_URL:http://localhost:8080}
     replayLineY: ${PRESENCE_REPLAY_LINE_Y:520}
     replayRoi: ${PRESENCE_REPLAY_ROI:620,170,1290,760}
@@ -218,6 +218,9 @@ presence:
       yoloConf: ${PRESENCE_LIVE_YOLO_CONF:0.20}
       enterFaceHuntMaxSec: ${PRESENCE_ENTER_FACE_HUNT_MAX_SEC:10}
       enterFaceGraceSec: ${PRESENCE_ENTER_FACE_GRACE_SEC:4}
+      lanRtspUsername: ${PRESENCE_LIVE_LAN_RTSP_USERNAME:admin}
+      lanRtspPort: ${PRESENCE_LIVE_LAN_RTSP_PORT:554}
+      lanRtspStreamPath: ${PRESENCE_LIVE_LAN_RTSP_STREAM_PATH:/h264/ch1/main/av_stream}
       go2rtcBaseUrl: ${GO2RTC_BASE_URL:http://127.0.0.1:1984}
       go2rtcPublicBaseUrl: ${GO2RTC_PUBLIC_BASE_URL:http://127.0.0.1:1984}
       go2rtcRtspBaseUrl: ${GO2RTC_RTSP_BASE_URL:rtsp://127.0.0.1:8554}

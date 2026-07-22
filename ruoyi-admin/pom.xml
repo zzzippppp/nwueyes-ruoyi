@@ -17,12 +17,12 @@
 
     <dependencies>
 
-        <!-- spring-boot-devtools -->
+        <!-- spring-boot-devtools (disabled due to classloader issues)
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
-            <optional>true</optional> <!-- 表示依赖不会传递 -->
-        </dependency>
+            <optional>true</optional>
+        </dependency> -->
 
         <!-- spring-doc -->
         <dependency>
