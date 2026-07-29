@@ -61,6 +61,29 @@ public class MonitorScreenController
     }
 
     /**
+     * 强制停止指定设备的直播流（释放萤石服务端并发名额）
+     */
+    @PostMapping("/force-stop/{deviceSerial}/{channelNo}")
+    public AjaxResult forceStopLiveStream(@PathVariable("deviceSerial") String deviceSerial,
+            @PathVariable("channelNo") Integer channelNo)
+    {
+        ezvizScreenService.forceStopLiveStream(deviceSerial, channelNo);
+        return AjaxResult.success();
+    }
+
+    /**
+     * 获取 HLS 直播地址（绕过 Ezviz SDK 的观看人数限制）
+     */
+    @PostMapping("/hls-url")
+    public AjaxResult getHlsUrl(@RequestBody java.util.Map<String, Object> params)
+    {
+        String deviceSerial = (String) params.get("deviceSerial");
+        Integer channelNo = (Integer) params.get("channelNo");
+        String url = ezvizScreenService.getHlsLiveUrl(deviceSerial, channelNo);
+        return AjaxResult.success(url);
+    }
+
+    /**
      * 启动直播识别（局域网 RTSP + YOLO + 异步 ingest）。
      */
     @PostMapping("/live/start")

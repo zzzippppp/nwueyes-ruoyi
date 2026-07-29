@@ -33,4 +33,14 @@ public interface ICameraService
     int updateDeviceInfo(DeviceInfo info);
 
     int deleteDeviceInfoByIds(Long[] ids);
+
+    List<CameraConfigVo> selectCameraList(CameraConfigVo camera);
+
+    int insertCamera(CameraConfigVo camera);
+
+    int updateCamera(CameraConfigVo camera);
+
+    int deleteCameraByIds(Long[] cameraIds);
+
+    CameraConfigVo selectCameraById(Long cameraId);
 }

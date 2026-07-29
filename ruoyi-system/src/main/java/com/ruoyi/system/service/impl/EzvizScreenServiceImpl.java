@@ -18,8 +18,10 @@ import com.ruoyi.common.utils.http.HttpUtils;
 import com.ruoyi.system.config.EzvizProperties;
 import com.ruoyi.system.config.PresenceIngestProperties;
 import com.ruoyi.system.domain.bo.PresenceLiveStartBo;
+import com.ruoyi.system.domain.vo.CameraConfigVo;
 import com.ruoyi.system.domain.vo.EzvizDeviceVo;
 import com.ruoyi.system.domain.vo.EzvizScreenConfigVo;
+import com.ruoyi.system.mapper.CameraMapper;
 import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IEzvizScreenService;
 
@@ -37,6 +39,10 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
 
     private static final String DEVICE_INFO_API = "/api/lapp/device/info";
 
+    private static final String LIVE_STOP_API = "/api/lapp/live/video/stop";
+
+    private static final String LIVE_ADDRESS_API = "/api/lapp/v2/live/address/get";
+
     private static final long TOKEN_REFRESH_BUFFER_MS = 60 * 1000L;
 
     private static final long DEFAULT_TOKEN_EXPIRE_MS = 6L * 24 * 60 * 60 * 1000;
@@ -50,6 +56,9 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     @Autowired
     private ICameraService cameraService;
 
+    @Autowired
+    private CameraMapper cameraMapper;
+
     private volatile String cachedAccessToken;
 
     private volatile long cachedAccessTokenExpireAt;
@@ -62,12 +71,13 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         EzvizScreenConfigVo configVo = new EzvizScreenConfigVo();
         configVo.setDefaultChannelNo(resolveDefaultChannelNo());
         configVo.setCameras(cameraService.listMonitorCameras());
-        // 局域网预览不依赖 accessToken；萤石 token/设备列表仅作可选在线状态补充
         try
         {
             validateConfig();
             configVo.setAccessToken(getAccessToken());
-            configVo.setDevices(listDevices(configVo.getAccessToken()));
+            List<EzvizDeviceVo> devices = listDevices(configVo.getAccessToken());
+            configVo.setDevices(devices);
+            syncCameraOnlineStatus(devices);
         }
         catch (Exception ex)
         {
@@ -75,6 +85,62 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
             configVo.setDevices(new ArrayList<EzvizDeviceVo>());
         }
         return configVo;
+    }
+
+    /**
+     * 根据萤石设备列表同步更新数据库 camera 表的 online_status。
+     */
+    private void syncCameraOnlineStatus(List<EzvizDeviceVo> devices)
+    {
+        if (devices == null || devices.isEmpty())
+        {
+            return;
+        }
+
+        // 构建 serialNo -> status 映射
+        Map<String, String> serialStatusMap = new LinkedHashMap<String, String>();
+        for (EzvizDeviceVo device : devices)
+        {
+            if (StringUtils.isNotEmpty(device.getDeviceSerial()))
+            {
+                serialStatusMap.put(device.getDeviceSerial().toUpperCase(), device.getStatus());
+            }
+        }
+
+        List<CameraConfigVo> cameras = cameraService.listMonitorCameras();
+        if (cameras == null || cameras.isEmpty())
+        {
+            return;
+        }
+
+        for (CameraConfigVo camera : cameras)
+        {
+            String serial = camera.getSerialNo();
+            if (StringUtils.isEmpty(serial))
+            {
+                continue;
+            }
+            String ezvizStatus = serialStatusMap.get(serial.toUpperCase());
+            if (ezvizStatus == null)
+            {
+                continue;
+            }
+
+            // 萤石 status: "1" = 在线, 其他 = 离线
+            String newStatus = "1".equals(ezvizStatus) ? "online" : "offline";
+            String currentStatus = camera.getOnlineStatus();
+            if (!newStatus.equals(currentStatus))
+            {
+                try
+                {
+                    cameraMapper.updateCamera(camera.getId(), camera.getDeviceName(), newStatus);
+                }
+                catch (Exception e)
+                {
+                    // 忽略更新失败，不影响主流程
+                }
+            }
+        }
     }
 
     @Override
@@ -188,6 +254,64 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     {
         clearAccessTokenCache();
         return getAccessToken();
+    }
+
+    @Override
+    public void forceStopLiveStream(String deviceSerial, Integer channelNo)
+    {
+        if (StringUtils.isEmpty(deviceSerial))
+        {
+            return;
+        }
+        int channel = channelNo == null || channelNo < 1 ? resolveDefaultChannelNo() : channelNo.intValue();
+
+        Map<String, String> params = new LinkedHashMap<String, String>();
+        params.put("accessToken", getAccessToken());
+        params.put("deviceSerial", deviceSerial.trim());
+        params.put("channelNo", String.valueOf(channel));
+
+        try
+        {
+            requestEzvizApi(LIVE_STOP_API, params);
+        }
+        catch (ServiceException e)
+        {
+            // 忽略停止失败（可能本来就没有活跃的直播流）
+        }
+    }
+
+    @Override
+    public String getHlsLiveUrl(String deviceSerial, Integer channelNo)
+    {
+        if (StringUtils.isEmpty(deviceSerial))
+        {
+            throw new ServiceException("deviceSerial 不能为空");
+        }
+        int channel = channelNo == null || channelNo < 1 ? resolveDefaultChannelNo() : channelNo.intValue();
+
+        Map<String, String> params = new LinkedHashMap<String, String>();
+        params.put("accessToken", getAccessToken());
+        params.put("deviceSerial", deviceSerial.trim());
+        params.put("channelNo", String.valueOf(channel));
+        params.put("protocol", "2");
+        params.put("type", "1");
+        params.put("expireTime", String.valueOf(ingestProperties.getLive().getEzvizStreamExpireSec()));
+        params.put("quality", "1");
+        params.put("supportH265", "0");
+
+        JSONObject result = requestEzvizApi(LIVE_ADDRESS_API, params);
+        JSONObject data = result.getJSONObject("data");
+        if (data == null)
+        {
+            throw new ServiceException("萤石直播地址响应缺少 data");
+        }
+
+        String url = firstNotBlank(data.getString("hdUrl"), data.getString("url"), data.getString("hlsUrl"));
+        if (StringUtils.isEmpty(url))
+        {
+            throw new ServiceException("萤石未返回 HLS 直播地址");
+        }
+        return url;
     }
 
     /**
@@ -420,7 +544,14 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
         String code = result.getString("code");
         if (!"200".equals(code))
         {
-            throw new ServiceException("调用萤石接口失败：" + firstNotBlank(result.getString("msg"), "未知错误"));
+            String msg = firstNotBlank(result.getString("msg"), "未知错误");
+            if (isViewerLimitError(code, msg))
+            {
+                throw new ServiceException(
+                        "当前观看人数已达上限，请关闭其他正在观看的窗口后重试。如需多人同时观看，请升级萤石开放平台套餐。",
+                        4603);
+            }
+            throw new ServiceException("调用萤石接口失败：" + msg);
         }
         return result;
     }
@@ -540,5 +671,24 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
             }
         }
         return StringUtils.EMPTY;
+    }
+
+    /**
+     * 判断是否为观看人数上限错误
+     * 萤石错误码 10002 或消息包含"观看人数"、"上限"等关键词
+     */
+    private boolean isViewerLimitError(String code, String msg)
+    {
+        if ("10002".equals(code))
+        {
+            return true;
+        }
+        if (StringUtils.isEmpty(msg))
+        {
+            return false;
+        }
+        String lowerMsg = msg.toLowerCase();
+        return lowerMsg.contains("观看人数") || lowerMsg.contains("上限")
+                || lowerMsg.contains("viewer") || lowerMsg.contains("limit");
     }
 }

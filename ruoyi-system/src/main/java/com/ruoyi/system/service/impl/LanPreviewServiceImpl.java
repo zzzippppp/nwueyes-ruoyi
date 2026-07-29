@@ -113,6 +113,10 @@ public class LanPreviewServiceImpl implements ILanPreviewService
         {
             bo.setValidCode(cfg.getVerifyCode());
         }
+        if (StringUtils.isEmpty(bo.getValidCode()))
+        {
+            throw new ServiceException("摄像头(ID=" + bo.getCameraId() + ")未配置验证码，请在设备管理中填写");
+        }
     }
 
     private String buildStreamName(Long cameraId)

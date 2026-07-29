@@ -42,4 +42,14 @@ public interface CameraMapper
     int countBehaviorByCameraIds(@Param("ids") Long[] ids);
 
     int countSessionByCameraIds(@Param("ids") Long[] ids);
+
+    List<CameraConfigVo> selectCameraList(CameraConfigVo camera);
+
+    CameraConfigVo selectCameraById(@Param("cameraId") Long cameraId);
+
+    int insertCameraFull(CameraConfigVo camera);
+
+    int updateCameraFull(CameraConfigVo camera);
+
+    int deleteCameraByIds(@Param("cameraIds") Long[] cameraIds);
 }
