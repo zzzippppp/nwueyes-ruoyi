@@ -38,8 +38,8 @@ def parse_args():
     parser.add_argument(
         "--face-mode",
         choices=["crop", "detect"],
-        default="crop",
-        help="crop=识别-only(默认，适配 YOLO 人脸 crop)；detect=检测+识别",
+        default="detect",
+        help="detect=检脸+对齐再识别（推荐）；crop=整图拉伸112（跨域匹配弱）",
     )
     parser.add_argument("--face-model-path", default="", help="w600k_r50.onnx 路径，默认自动查找")
     return parser.parse_args()

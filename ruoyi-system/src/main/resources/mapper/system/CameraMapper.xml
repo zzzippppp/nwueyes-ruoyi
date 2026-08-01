@@ -68,6 +68,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         UPDATE camera
         SET line_y = COALESCE(#{lineY}, line_y),
             roi = COALESCE(#{roi}, roi),
+            ref_width = COALESCE(#{refWidth}, ref_width),
+            ref_height = COALESCE(#{refHeight}, ref_height),
             updated_at = NOW()
         WHERE id = #{cameraId}
     </update>

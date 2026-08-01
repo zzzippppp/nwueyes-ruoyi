@@ -10,6 +10,7 @@ import com.ruoyi.system.domain.vo.DataBoardCameraItemVo;
 import com.ruoyi.system.domain.vo.DataBoardOverviewVo;
 import com.ruoyi.system.domain.vo.DataBoardPersonItemVo;
 import com.ruoyi.system.domain.vo.DataBoardRecentSessionVo;
+import com.ruoyi.system.domain.vo.DataBoardPersonSearchVo;
 import com.ruoyi.system.domain.vo.DataBoardStrangerItemVo;
 
 /**
@@ -42,7 +43,7 @@ public interface DataBoardMapper
 
     int updatePerson(@Param("personId") Long personId, @Param("displayName") String displayName,
             @Param("personType") String personType, @Param("employeeNo") String employeeNo,
-            @Param("note") String note);
+            @Param("note") String note, @Param("phone") String phone, @Param("gender") String gender);
 
     Long selectPersonByEmployeeNo(@Param("employeeNo") String employeeNo);
 
@@ -79,6 +80,11 @@ public interface DataBoardMapper
 
     int updateCamera(@Param("cameraId") Long cameraId, @Param("deviceName") String deviceName,
             @Param("isActive") Boolean isActive);
+
+    List<java.util.Map<String, Object>> selectStrangerFaceEmbeddings(@Param("beginDate") Date beginDate,
+            @Param("endDate") Date endDate);
+
+    List<DataBoardPersonSearchVo> searchPersons(@Param("keyword") String keyword);
 
     Long selectRegisteredPersonCount();
 

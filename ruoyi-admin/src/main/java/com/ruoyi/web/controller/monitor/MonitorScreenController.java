@@ -8,10 +8,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.system.domain.bo.CameraDoorConfigBo;
 import com.ruoyi.system.domain.bo.PresenceLiveStartBo;
 import com.ruoyi.system.domain.vo.LanPreviewVo;
 import com.ruoyi.system.domain.vo.PresenceLiveTaskVo;
 import com.ruoyi.system.service.IEzvizScreenService;
+import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.ILanPreviewService;
 import com.ruoyi.system.service.IPresenceLiveService;
 
@@ -30,6 +32,9 @@ public class MonitorScreenController
 
     @Autowired
     private ILanPreviewService lanPreviewService;
+
+    @Autowired
+    private ICameraService cameraService;
 
     /**
      * 获取监控大屏播放配置（摄像头列表等）
@@ -129,5 +134,15 @@ public class MonitorScreenController
     public AjaxResult captureProbeFrame(@RequestBody PresenceLiveStartBo bo)
     {
         return AjaxResult.success(presenceLiveService.captureProbeFrame(bo));
+    }
+
+    /**
+     * 保存用户在抽帧图片上绘制的门框 ROI 与门线。
+     */
+    @PostMapping("/door-config")
+    public AjaxResult updateDoorConfig(@RequestBody CameraDoorConfigBo bo)
+    {
+        return AjaxResult.success(cameraService.updateDoorConfig(
+                bo.getCameraId(), bo.getLineY(), bo.getRoi(), bo.getRefWidth(), bo.getRefHeight()));
     }
 }

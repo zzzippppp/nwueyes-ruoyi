@@ -81,6 +81,8 @@ def main():
     parser.add_argument("--camera-id", type=int, default=1)
     parser.add_argument("--line-y", type=int, default=520)
     parser.add_argument("--roi", default="620,170,1290,760", help="x1,y1,x2,y2")
+    parser.add_argument("--ref-width", type=int, default=REF_WIDTH)
+    parser.add_argument("--ref-height", type=int, default=REF_HEIGHT)
     parser.add_argument("--model", default="yolov8n.pt")
     parser.add_argument("--conf", type=float, default=0.35)
     parser.add_argument("--iou", type=float, default=0.6)
@@ -103,14 +105,18 @@ def main():
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1080
     cap.release()
 
-    x1, y1, x2, y2, line_y, scaled_roi = scale_roi_and_line(args.roi, args.line_y, width, height)
-    tight_margin = tight_infer_margin(height, REF_HEIGHT)
-    exit_margin = exit_hysteresis_margin(height, REF_HEIGHT)
-    min_track_hits = min_track_hits_for_event(height, REF_HEIGHT)
+    ref_w = max(1, int(args.ref_width))
+    ref_h = max(1, int(args.ref_height))
+    x1, y1, x2, y2, line_y, scaled_roi = scale_roi_and_line(
+        args.roi, args.line_y, width, height, ref_width=ref_w, ref_height=ref_h
+    )
+    tight_margin = tight_infer_margin(height, ref_h)
+    exit_margin = exit_hysteresis_margin(height, ref_h)
+    min_track_hits = min_track_hits_for_event(height, ref_h)
     door_gate = PerTrackDoorGate(line_y, tight_margin, exit_margin)
     track_hits: Dict[int, int] = {}
     print(
-        f"[roi] ref={REF_WIDTH}x{REF_HEIGHT} video={width}x{height} "
+        f"[roi] ref={ref_w}x{ref_h} video={width}x{height} "
         f"base={args.roi} lineY={args.line_y} -> scaled={scaled_roi} lineY={line_y} "
         f"tightInferPx={tight_margin} exitMarginPx={exit_margin} minTrackHits={min_track_hits}"
     )

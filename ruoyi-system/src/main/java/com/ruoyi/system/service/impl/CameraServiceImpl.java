@@ -56,7 +56,7 @@ public class CameraServiceImpl implements ICameraService
         String roi = ingestProperties.getReplayRoi();
         if (lineY != null || !StringUtils.isEmpty(roi))
         {
-            cameraMapper.updateDoorConfig(created, lineY, roi);
+            cameraMapper.updateDoorConfig(created, lineY, roi, null, null);
         }
         return created;
     }
@@ -68,6 +68,48 @@ public class CameraServiceImpl implements ICameraService
         {
             return null;
         }
+        return cameraMapper.selectById(cameraId);
+    }
+
+    @Override
+    public CameraConfigVo updateDoorConfig(Long cameraId, Integer lineY, String roi, Integer refWidth, Integer refHeight)
+    {
+        if (cameraId == null)
+        {
+            throw new ServiceException("请选择摄像头");
+        }
+        CameraConfigVo camera = cameraMapper.selectById(cameraId);
+        if (camera == null)
+        {
+            throw new ServiceException("摄像头不存在: " + cameraId);
+        }
+        if (lineY == null || lineY < 0)
+        {
+            throw new ServiceException("请先标注蓝色门线");
+        }
+        if (StringUtils.isEmpty(roi) || !roi.trim().matches("\\d+,\\d+,\\d+,\\d+"))
+        {
+            throw new ServiceException("请先标注红色门框");
+        }
+        if (refWidth == null || refWidth < 1 || refHeight == null || refHeight < 1)
+        {
+            throw new ServiceException("标定图片分辨率无效");
+        }
+        if (lineY >= refHeight)
+        {
+            throw new ServiceException("门线超出图片范围");
+        }
+        String[] parts = roi.trim().split(",");
+        int x1 = Integer.parseInt(parts[0]);
+        int y1 = Integer.parseInt(parts[1]);
+        int x2 = Integer.parseInt(parts[2]);
+        int y2 = Integer.parseInt(parts[3]);
+        if (x1 < 0 || y1 < 0 || x2 <= x1 || y2 <= y1 || x2 >= refWidth || y2 >= refHeight)
+        {
+            throw new ServiceException("门框超出图片范围或尺寸无效");
+        }
+        cameraMapper.updateDoorConfig(cameraId, lineY, x1 + "," + y1 + "," + x2 + "," + y2,
+                refWidth, refHeight);
         return cameraMapper.selectById(cameraId);
     }
 

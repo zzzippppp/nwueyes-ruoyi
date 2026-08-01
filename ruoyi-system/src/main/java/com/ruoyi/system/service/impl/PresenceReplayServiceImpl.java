@@ -9,45 +9,40 @@ import java.io.File;
 import java.io.InputStreamReader;
 
 import java.nio.charset.StandardCharsets;
-
 import java.nio.file.Files;
-
+import java.nio.file.Path;
 import java.time.LocalDateTime;
-
 import java.time.format.DateTimeFormatter;
-
 import java.util.ArrayList;
-
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-
 import java.util.Map;
-
 import java.util.Objects;
-
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Autowired;
-
+import org.springframework.context.annotation.Lazy;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
-
-import com.ruoyi.common.utils.StringUtils;
-
-import com.ruoyi.common.utils.uuid.IdUtils;
-
-import com.ruoyi.system.config.PresenceIngestProperties;
-
-import com.ruoyi.system.domain.bo.PresenceReplayStartBo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.common.utils.uuid.IdUtils;
+import com.ruoyi.system.config.PresenceIngestProperties;
+import com.ruoyi.system.domain.bo.BehaviorLogImportFromVideoBo;
+import com.ruoyi.system.domain.bo.PresenceReplayStartBo;
+import com.ruoyi.system.domain.vo.AiAnalysisResultVo;
+import com.ruoyi.system.domain.vo.BehaviorLogImportResultVo;
 import com.ruoyi.system.domain.vo.CameraConfigVo;
 import com.ruoyi.system.domain.vo.PresenceReplayTaskVo;
+import com.ruoyi.system.service.IBehaviorLogService;
 import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IPresenceReplayService;
+import com.ruoyi.system.service.IVideoAnalysisService;
 
 import jakarta.annotation.Resource;
-
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 
 
@@ -70,6 +65,13 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
     @Autowired
     private ICameraService cameraService;
+
+    @Autowired
+    @Lazy
+    private IBehaviorLogService behaviorLogService;
+
+    @Autowired
+    private IVideoAnalysisService videoAnalysisService;
 
 
 
@@ -114,13 +116,262 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
         if (state != null)
 
         {
-
+            File resultFile = analyzeResultFile(taskId);
+            if (resultFile.exists())
+            {
+                try
+                {
+                    state.resultJson = Files.readString(resultFile.toPath(), StandardCharsets.UTF_8);
+                }
+                catch (Exception ignored)
+                {
+                }
+            }
             return state.toVo();
 
         }
 
         return loadTaskFromDisk(taskId);
 
+    }
+
+
+
+    @Override
+    public Map<String, Object> submitAiAnalysisForTask(String taskId, List<String> modelKeys)
+    {
+        if (StringUtils.isEmpty(taskId))
+        {
+            throw new IllegalArgumentException("taskId cannot be empty");
+        }
+        File resultFile = analyzeResultFile(taskId);
+        if (!resultFile.exists())
+        {
+            throw new IllegalArgumentException("分析结果不存在，请先完成 YOLO 检测: " + taskId);
+        }
+        try
+        {
+            ObjectNode root = (ObjectNode) objectMapper.readTree(Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
+            String status = root.path("aiAnalysisStatus").asText("");
+            if ("pending".equals(status) || "running".equals(status))
+            {
+                Map<String, Object> busy = new HashMap<>();
+                busy.put("taskId", taskId);
+                busy.put("status", "pending");
+                busy.put("message", "AI 分析进行中");
+                return busy;
+            }
+            String sourceVideo = root.path("sourceVideo").asText("");
+            if (StringUtils.isEmpty(sourceVideo))
+            {
+                throw new IllegalArgumentException("分析结果缺少 sourceVideo");
+            }
+            Path videoPath = Path.of(sourceVideo);
+            if (!Files.isRegularFile(videoPath))
+            {
+                throw new IllegalArgumentException("源视频不存在: " + sourceVideo);
+            }
+            root.put("aiAnalysisStatus", "pending");
+            root.put("aiAnalysisError", "");
+            root.putNull("aiAnalysis");
+            String pendingJson = objectMapper.writeValueAsString(root);
+            Files.writeString(resultFile.toPath(), pendingJson, StandardCharsets.UTF_8);
+            ReplayTaskState state = taskMap.get(taskId);
+            if (state != null)
+            {
+                state.resultJson = pendingJson;
+            }
+
+            final List<String> keys = modelKeys;
+            final List<Double> eventTimes = extractEventTimesSec(root);
+            executor.execute(() -> runAiAnalysisJob(taskId, videoPath, keys, eventTimes));
+
+            Map<String, Object> accepted = new HashMap<>();
+            accepted.put("taskId", taskId);
+            accepted.put("status", "pending");
+            accepted.put("message", "AI 分析已提交");
+            accepted.put("eventCount", eventTimes.size());
+            return accepted;
+        }
+        catch (IllegalArgumentException | IllegalStateException ex)
+        {
+            throw ex;
+        }
+        catch (Exception ex)
+        {
+            throw new IllegalStateException("提交 AI 分析失败: " + ex.getMessage(), ex);
+        }
+    }
+
+    @Override
+    public Map<String, Object> ensureAiAnalysisForTask(String taskId)
+    {
+        Map<String, Object> out = new HashMap<>();
+        out.put("taskId", taskId);
+        PresenceIngestProperties.AiAnalysis analysis = ingestProperties.getAnalysis();
+        if (analysis == null || !analysis.isEnabled())
+        {
+            out.put("status", "skipped");
+            out.put("message", "AI 分析未启用");
+            return out;
+        }
+        if (StringUtils.isEmpty(taskId))
+        {
+            throw new IllegalArgumentException("taskId cannot be empty");
+        }
+        File resultFile = analyzeResultFile(taskId);
+        if (!resultFile.exists())
+        {
+            throw new IllegalArgumentException("分析结果不存在，请先完成 YOLO 检测: " + taskId);
+        }
+        try
+        {
+            ObjectNode root = (ObjectNode) objectMapper.readTree(Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
+            String status = root.path("aiAnalysisStatus").asText("");
+            if ("success".equals(status) && root.path("aiAnalysis").isArray() && !root.path("aiAnalysis").isEmpty())
+            {
+                out.put("status", "success");
+                out.put("message", "AI 分析已存在");
+                return out;
+            }
+            // 异步任务进行中：短暂轮询等待完成
+            if ("pending".equals(status) || "running".equals(status))
+            {
+                for (int i = 0; i < 60; i++)
+                {
+                    Thread.sleep(1000L);
+                    root = (ObjectNode) objectMapper.readTree(Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
+                    status = root.path("aiAnalysisStatus").asText("");
+                    if ("success".equals(status) || "failed".equals(status))
+                    {
+                        break;
+                    }
+                }
+                if ("success".equals(status) && root.path("aiAnalysis").isArray() && !root.path("aiAnalysis").isEmpty())
+                {
+                    out.put("status", "success");
+                    out.put("message", "AI 分析等待完成");
+                    return out;
+                }
+                if ("pending".equals(status) || "running".equals(status))
+                {
+                    out.put("status", status);
+                    out.put("message", "AI 分析仍在进行，跳过等待");
+                    return out;
+                }
+            }
+
+            String sourceVideo = root.path("sourceVideo").asText("");
+            if (StringUtils.isEmpty(sourceVideo))
+            {
+                throw new IllegalArgumentException("分析结果缺少 sourceVideo");
+            }
+            Path videoPath = Path.of(sourceVideo);
+            if (!Files.isRegularFile(videoPath))
+            {
+                throw new IllegalArgumentException("源视频不存在: " + sourceVideo);
+            }
+            root.put("aiAnalysisStatus", "running");
+            root.put("aiAnalysisError", "");
+            Files.writeString(resultFile.toPath(), objectMapper.writeValueAsString(root), StandardCharsets.UTF_8);
+            List<Double> eventTimes = extractEventTimesSec(root);
+            runAiAnalysisJob(taskId, videoPath, null, eventTimes);
+
+            root = (ObjectNode) objectMapper.readTree(Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
+            out.put("status", root.path("aiAnalysisStatus").asText("failed"));
+            out.put("message", "AI 分析已同步完成");
+            String err = root.path("aiAnalysisError").asText("");
+            if (!StringUtils.isEmpty(err))
+            {
+                out.put("error", err);
+            }
+            return out;
+        }
+        catch (IllegalArgumentException | IllegalStateException ex)
+        {
+            throw ex;
+        }
+        catch (Exception ex)
+        {
+            throw new IllegalStateException("同步 AI 分析失败: " + ex.getMessage(), ex);
+        }
+    }
+
+    private void runAiAnalysisJob(String taskId, Path videoPath, List<String> modelKeys, List<Double> eventTimes)
+    {
+        File resultFile = analyzeResultFile(taskId);
+        try
+        {
+            List<AiAnalysisResultVo> results = videoAnalysisService.analyzeLocalVideo(videoPath, modelKeys, eventTimes);
+            ObjectNode root = (ObjectNode) objectMapper.readTree(Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
+            root.set("aiAnalysis", objectMapper.valueToTree(results == null ? Collections.emptyList() : results));
+            root.put("aiAnalysisStatus", "success");
+            root.put("aiAnalysisError", "");
+            root.put("aiFrameStrategy", (eventTimes != null && !eventTimes.isEmpty()) ? "event" : "middle60");
+            boolean anySuccess = results != null && results.stream().anyMatch(r -> "success".equals(r.getStatus()));
+            boolean anyFailed = results != null && results.stream().anyMatch(r -> "failed".equals(r.getStatus()));
+            if (anyFailed && !anySuccess)
+            {
+                root.put("aiAnalysisStatus", "failed");
+                String err = results.stream()
+                        .map(AiAnalysisResultVo::getErrorMessage)
+                        .filter(s -> s != null && !s.isEmpty())
+                        .findFirst()
+                        .orElse("AI 分析失败");
+                root.put("aiAnalysisError", err);
+            }
+            String updated = objectMapper.writeValueAsString(root);
+            Files.writeString(resultFile.toPath(), updated, StandardCharsets.UTF_8);
+            ReplayTaskState state = taskMap.get(taskId);
+            if (state != null)
+            {
+                state.resultJson = updated;
+            }
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                ObjectNode root = (ObjectNode) objectMapper.readTree(Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
+                root.put("aiAnalysisStatus", "failed");
+                root.put("aiAnalysisError", ex.getMessage() == null ? "AI 分析失败" : ex.getMessage());
+                String updated = objectMapper.writeValueAsString(root);
+                Files.writeString(resultFile.toPath(), updated, StandardCharsets.UTF_8);
+                ReplayTaskState state = taskMap.get(taskId);
+                if (state != null)
+                {
+                    state.resultJson = updated;
+                }
+            }
+            catch (Exception ignored)
+            {
+            }
+        }
+    }
+
+    private List<Double> extractEventTimesSec(ObjectNode root)
+    {
+        List<Double> times = new ArrayList<>();
+        if (root == null || !root.has("events") || !root.get("events").isArray())
+        {
+            return times;
+        }
+        for (com.fasterxml.jackson.databind.JsonNode node : root.get("events"))
+        {
+            if (node == null || node.isNull())
+            {
+                continue;
+            }
+            if (node.has("timeSec") && node.get("timeSec").isNumber())
+            {
+                times.add(node.get("timeSec").asDouble());
+            }
+            else if (node.has("time_sec") && node.get("time_sec").isNumber())
+            {
+                times.add(node.get("time_sec").asDouble());
+            }
+        }
+        return times;
     }
 
 
@@ -183,11 +434,19 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
     {
 
-        if (StringUtils.isEmpty(bo.getUploadedFileName()))
+        if (StringUtils.isEmpty(bo.getUploadedFileName()) && StringUtils.isEmpty(bo.getVideoPath()))
 
         {
 
-            throw new IllegalArgumentException("uploadedFileName 不能为空");
+            throw new IllegalArgumentException("uploadedFileName 与 videoPath 不能同时为空");
+
+        }
+
+        if (replayMode && StringUtils.isEmpty(bo.getUploadedFileName()))
+
+        {
+
+            throw new IllegalArgumentException("回放测试需要 uploadedFileName");
 
         }
 
@@ -277,6 +536,13 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
                     state.message = "YOLO 分析已完成";
 
+                    // 先同步任务级 AI，再导入行为日志（导入侧会按同人合并规则过滤 pass）
+                    maybeEnsureTaskAiAnalysis(state);
+
+                    maybeAutoImportBehaviorLogs(state, bo);
+
+                    maybeAutoAiAnalysis(bo);
+
                 }
 
             }
@@ -336,6 +602,14 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
         {
             bo.setRoi(cfg.getRoi());
         }
+        if (bo.getRefWidth() == null && cfg.getRefWidth() != null)
+        {
+            bo.setRefWidth(cfg.getRefWidth());
+        }
+        if (bo.getRefHeight() == null && cfg.getRefHeight() != null)
+        {
+            bo.setRefHeight(cfg.getRefHeight());
+        }
     }
 
     private void loadAnalyzeResult(ReplayTaskState state) throws Exception
@@ -370,6 +644,88 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         }
 
+    }
+
+    private void maybeEnsureTaskAiAnalysis(ReplayTaskState state)
+    {
+        PresenceIngestProperties.AiAnalysis analysis = ingestProperties.getAnalysis();
+        if (analysis == null || !analysis.isEnabled() || !analysis.isAutoRun())
+        {
+            return;
+        }
+        try
+        {
+            Map<String, Object> ai = ensureAiAnalysisForTask(state.taskId);
+            Object status = ai == null ? null : ai.get("status");
+            state.appendLog("[auto-ai] task status=" + status);
+            // 刷新内存中的 resultJson，供后续导入读取 AI 摘要
+            File resultFile = analyzeResultFile(state.taskId);
+            if (resultFile.exists())
+            {
+                state.resultJson = Files.readString(resultFile.toPath(), StandardCharsets.UTF_8);
+            }
+        }
+        catch (Exception ex)
+        {
+            state.appendLog("[auto-ai] task failed: " + ex.getMessage());
+        }
+    }
+
+    private void maybeAutoImportBehaviorLogs(ReplayTaskState state, PresenceReplayStartBo bo)
+    {
+        boolean autoImport = Boolean.TRUE.equals(bo.getAutoImportBehaviorLogs());
+        if (!autoImport)
+        {
+            return;
+        }
+        if (StringUtils.isEmpty(state.resultJson))
+        {
+            state.appendLog("[auto-import] skipped: empty resultJson");
+            return;
+        }
+        try
+        {
+            BehaviorLogImportFromVideoBo importBo = new BehaviorLogImportFromVideoBo();
+            importBo.setTaskId(state.taskId);
+            importBo.setCameraId(bo.getCameraId() != null ? bo.getCameraId() : state.cameraId);
+            importBo.setClipId(bo.getClipId());
+            importBo.setSceneGroupId(bo.getSceneGroupId());
+            importBo.setVideoBaseTime(bo.getVideoBaseTime());
+            importBo.setAllowEmptyEvents(true);
+            BehaviorLogImportResultVo imported = behaviorLogService.importFromVideoAnalyze(importBo);
+            String msg = imported == null ? "ok" : imported.getMessage();
+            state.appendLog("[auto-import] " + msg);
+            state.message = "YOLO 分析已完成，并已自动写入行为日志";
+        }
+        catch (Exception ex)
+        {
+            state.appendLog("[auto-import] failed: " + ex.getMessage());
+            state.message = "YOLO 分析已完成，但自动导入行为日志失败: " + ex.getMessage();
+        }
+    }
+
+    private void maybeAutoAiAnalysis(PresenceReplayStartBo bo)
+    {
+        PresenceIngestProperties.AiAnalysis analysis = ingestProperties.getAnalysis();
+        if (analysis == null || !analysis.isEnabled() || !analysis.isAutoRun())
+        {
+            return;
+        }
+        try
+        {
+            if (!StringUtils.isEmpty(bo.getSceneGroupId()))
+            {
+                videoAnalysisService.runAnalysis("scene_group", bo.getSceneGroupId(), null);
+            }
+            else if (bo.getClipId() != null)
+            {
+                videoAnalysisService.runAnalysis("clip", String.valueOf(bo.getClipId()), null);
+            }
+        }
+        catch (Exception ex)
+        {
+            // 自动 AI 失败不影响主流程
+        }
     }
 
 
@@ -424,9 +780,29 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         cmd.add(Objects.requireNonNullElse(ingestProperties.getAnalyzeScriptPath(), "scripts/video_analyze_yolo.py"));
 
-        cmd.add("--uploaded-file-name");
+        if (!StringUtils.isEmpty(bo.getVideoPath()))
 
-        cmd.add(bo.getUploadedFileName());
+        {
+
+            cmd.add("--video-path");
+
+            cmd.add(bo.getVideoPath());
+
+            cmd.add("--uploaded-file-name");
+
+            cmd.add("");
+
+        }
+
+        else
+
+        {
+
+            cmd.add("--uploaded-file-name");
+
+            cmd.add(bo.getUploadedFileName());
+
+        }
 
         cmd.add("--profile-root");
 
@@ -439,6 +815,14 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
         cmd.add("--roi");
 
         cmd.add(StringUtils.isEmpty(bo.getRoi()) ? ingestProperties.getReplayRoi() : bo.getRoi());
+
+        cmd.add("--ref-width");
+
+        cmd.add(String.valueOf(bo.getRefWidth() == null ? 1920 : bo.getRefWidth()));
+
+        cmd.add("--ref-height");
+
+        cmd.add(String.valueOf(bo.getRefHeight() == null ? 1080 : bo.getRefHeight()));
 
         PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
         if (live != null)
@@ -525,6 +909,14 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
         cmd.add("--roi");
 
         cmd.add(StringUtils.isEmpty(bo.getRoi()) ? ingestProperties.getReplayRoi() : bo.getRoi());
+
+        cmd.add("--ref-width");
+
+        cmd.add(String.valueOf(bo.getRefWidth() == null ? 1920 : bo.getRefWidth()));
+
+        cmd.add("--ref-height");
+
+        cmd.add(String.valueOf(bo.getRefHeight() == null ? 1080 : bo.getRefHeight()));
 
         if (!StringUtils.isEmpty(bo.getDebugOut()))
 

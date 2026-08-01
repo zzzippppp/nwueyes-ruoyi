@@ -18,7 +18,8 @@ public interface CameraMapper
             @Param("typeId") Long typeId);
 
     int updateDoorConfig(@Param("cameraId") Long cameraId, @Param("lineY") Integer lineY,
-            @Param("roi") String roi);
+            @Param("roi") String roi, @Param("refWidth") Integer refWidth,
+            @Param("refHeight") Integer refHeight);
 
     int updateCamera(@Param("cameraId") Long cameraId, @Param("deviceName") String deviceName,
             @Param("onlineStatus") String onlineStatus);

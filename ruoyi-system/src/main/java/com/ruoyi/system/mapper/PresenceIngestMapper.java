@@ -14,6 +14,8 @@ public interface PresenceIngestMapper
 
     PresenceOpenSessionVo selectLatestOpenByPerson(@Param("cameraId") Long cameraId, @Param("personId") Long personId);
 
+    PresenceOpenSessionVo selectAnyOpenByPerson(@Param("personId") Long personId);
+
     PresenceOpenSessionVo selectLatestOpenByLocation(@Param("cameraId") Long cameraId);
 
     Long insertOpenSession(@Param("cameraId") Long cameraId, @Param("personId") Long personId,
@@ -23,4 +25,10 @@ public interface PresenceIngestMapper
 
     int closeSession(@Param("sessionId") Long sessionId, @Param("eventTime") Date eventTime, @Param("personId") Long personId,
             @Param("bestMatchScore") Float bestMatchScore);
+
+    int closeOpenSessionsByPerson(@Param("personId") Long personId, @Param("eventTime") Date eventTime);
+
+    int deleteSessionsByPersonDate(@Param("personId") Long personId, @Param("attendanceDate") Date attendanceDate);
+
+    int reopenSession(@Param("sessionId") Long sessionId);
 }

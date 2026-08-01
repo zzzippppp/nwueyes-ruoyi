@@ -58,10 +58,10 @@ spring:
   # 文件上传
   servlet:
     multipart:
-      # 单个文件大小
-      max-file-size: 30MB
+      # 单个文件大小（场景片/回放上传可能超过 30MB）
+      max-file-size: 200MB
       # 设置总上传的文件大小
-      max-request-size: 30MB
+      max-request-size: 200MB
   jackson:
     time-zone: GMT+8
     date-format: yyyy-MM-dd HH:mm:ss
@@ -160,6 +160,10 @@ presence:
   # go2rtc 随后端自启动（后端就绪后拉起本机 go2rtc；端口已被占用则跳过）
   go2rtc:
     autoStart: ${GO2RTC_AUTO_START:true}
+    # 运行中 API 不可达时自动拉起，并重新注册已缓存的摄像头流
+    autoRestart: ${GO2RTC_AUTO_RESTART:true}
+    watchdogIntervalSec: ${GO2RTC_WATCHDOG_INTERVAL_SEC:15}
+    failThreshold: ${GO2RTC_FAIL_THRESHOLD:2}
     exePath: ${GO2RTC_EXE_PATH:tools/go2rtc/go2rtc.exe}
     configPath: ${GO2RTC_CONFIG_PATH:tools/go2rtc/go2rtc.yaml}
   ingest:
@@ -177,20 +181,28 @@ presence:
     faceEmbedModel: ${PRESENCE_FACE_EMBED_MODEL:buffalo_l}
     bodyEmbedModel: ${PRESENCE_BODY_EMBED_MODEL:osnet_x0_25}
     faceMinDetScore: ${PRESENCE_FACE_MIN_DET_SCORE:0.45}
+    # detect=检脸+对齐再提向量（证件照与监控一致）；crop=整图拉伸（跨域弱）
+    faceEmbedMode: ${PRESENCE_FACE_EMBED_MODE:detect}
     replayProfileRoot: ${PRESENCE_REPLAY_PROFILE_ROOT:./data/uploadPath}
     replayIngestBaseUrl: ${PRESENCE_REPLAY_INGEST_BASE_URL:http://localhost:8080}
     replayLineY: ${PRESENCE_REPLAY_LINE_Y:520}
     replayRoi: ${PRESENCE_REPLAY_ROI:620,170,1290,760}
-    faceMatchThreshold: ${PRESENCE_FACE_MATCH_THRESHOLD:0.45}
+    faceMatchThreshold: ${PRESENCE_FACE_MATCH_THRESHOLD:0.35}
     bodyMatchThreshold: ${PRESENCE_BODY_MATCH_THRESHOLD:0.50}
     liveScriptPath: ${PRESENCE_LIVE_SCRIPT:scripts/live_stream_worker_yolo.py}
     clip:
       enabled: ${PRESENCE_CLIP_ENABLED:true}
-      preRollSec: ${PRESENCE_CLIP_PRE_ROLL_SEC:3}
+      preRollSec: ${PRESENCE_CLIP_PRE_ROLL_SEC:5}
       postRollSec: ${PRESENCE_CLIP_POST_ROLL_SEC:3}
       trackLostSec: ${PRESENCE_CLIP_TRACK_LOST_SEC:2}
       sceneMergeGapSec: ${PRESENCE_CLIP_SCENE_MERGE_GAP_SEC:5}
+      # true=ffmpeg -c copy 分段环形缓冲后切片（源码流原画质）；false=仅记时间窗
       localRecordingEnabled: ${PRESENCE_CLIP_LOCAL_RECORDING_ENABLED:false}
+      ffmpegPath: ${PRESENCE_CLIP_FFMPEG_PATH:ffmpeg}
+      ringSegmentSec: ${PRESENCE_CLIP_RING_SEGMENT_SEC:2}
+      maxDurationSec: ${PRESENCE_CLIP_MAX_DURATION_SEC:300}
+      autoAnalyzeYolo: ${PRESENCE_CLIP_AUTO_ANALYZE_YOLO:true}
+      autoImportBehaviorLogs: ${PRESENCE_CLIP_AUTO_IMPORT_BEHAVIOR_LOGS:true}
       ezvizRecordingFormat: ${PRESENCE_CLIP_EZVIZ_RECORDING_FORMAT:MP4}
       ezvizAddressExpireSeconds: ${PRESENCE_CLIP_EZVIZ_ADDRESS_EXPIRE_SECONDS:1800}
       ezvizTranscodeBusType: ${PRESENCE_CLIP_EZVIZ_TRANSCODE_BUS_TYPE:7}
@@ -201,8 +213,15 @@ presence:
     analysis:
       enabled: ${PRESENCE_AI_ANALYSIS_ENABLED:false}
       autoRun: ${PRESENCE_AI_ANALYSIS_AUTO_RUN:false}
-      timeoutSec: ${PRESENCE_AI_ANALYSIS_TIMEOUT_SEC:60}
-      prompt: ${PRESENCE_AI_ANALYSIS_PROMPT:请分析这段监控视频中的人物外观、行为、多人互动和潜在风险，返回JSON字段summary、appearance、behavior、riskLevel。}
+      timeoutSec: ${PRESENCE_AI_ANALYSIS_TIMEOUT_SEC:180}
+      prompt: ${PRESENCE_AI_ANALYSIS_PROMPT:当前监控视角在实验室内部、朝门外拍摄。人物向外走（离开实验室）=出门，向里走（进入实验室）=进门。请分析这段监控视频，只返回JSON对象，字段：summary（用一两句话概括画面中有谁、是进门还是出门、在做什么）、personCount（画面中人数，整数）。不要返回其他字段。}
+      videoFps: ${PRESENCE_AI_VIDEO_FPS:2.0}
+      frameExtractFps: ${PRESENCE_AI_FRAME_EXTRACT_FPS:1.0}
+      maxFrameCount: ${PRESENCE_AI_MAX_FRAME_COUNT:10}
+      middleWindowRatio: ${PRESENCE_AI_MIDDLE_WINDOW_RATIO:0.6}
+      eventPaddingSec: ${PRESENCE_AI_EVENT_PADDING_SEC:1.5}
+      frameWidth: ${PRESENCE_AI_FRAME_WIDTH:960}
+      maxBase64Bytes: ${PRESENCE_AI_MAX_BASE64_BYTES:524288}
       oss:
         enabled: ${PRESENCE_AI_OSS_ENABLED:false}
         endpoint: ${PRESENCE_AI_OSS_ENDPOINT:}
@@ -211,6 +230,7 @@ presence:
         accessKeySecret: ${PRESENCE_AI_OSS_ACCESS_KEY_SECRET:}
         publicBaseUrl: ${PRESENCE_AI_OSS_PUBLIC_BASE_URL:}
         objectPrefix: ${PRESENCE_AI_OSS_OBJECT_PREFIX:safetyguard/clips}
+      # 具体模型在 application-local.yml 配置；示例见 application-local.example.yml
       models: []
     live:
       targetDetectFps: ${PRESENCE_LIVE_TARGET_FPS:10}
@@ -218,9 +238,17 @@ presence:
       yoloConf: ${PRESENCE_LIVE_YOLO_CONF:0.20}
       enterFaceHuntMaxSec: ${PRESENCE_ENTER_FACE_HUNT_MAX_SEC:10}
       enterFaceGraceSec: ${PRESENCE_ENTER_FACE_GRACE_SEC:4}
+      eventIngestEnabled: ${PRESENCE_LIVE_EVENT_INGEST_ENABLED:false}
       lanRtspUsername: ${PRESENCE_LIVE_LAN_RTSP_USERNAME:admin}
       lanRtspPort: ${PRESENCE_LIVE_LAN_RTSP_PORT:554}
       lanRtspStreamPath: ${PRESENCE_LIVE_LAN_RTSP_STREAM_PATH:/h264/ch1/main/av_stream}
       go2rtcBaseUrl: ${GO2RTC_BASE_URL:http://127.0.0.1:1984}
       go2rtcPublicBaseUrl: ${GO2RTC_PUBLIC_BASE_URL:http://127.0.0.1:1984}
       go2rtcRtspBaseUrl: ${GO2RTC_RTSP_BASE_URL:rtsp://127.0.0.1:8554}
+      # 保活：worker 异常退出自动重启；断流由 Python 侧重连；Java 重启后续跑
+      autoRestartEnabled: ${PRESENCE_LIVE_AUTO_RESTART:true}
+      restartBackoffSec: ${PRESENCE_LIVE_RESTART_BACKOFF_SEC:3}
+      restartBackoffMaxSec: ${PRESENCE_LIVE_RESTART_BACKOFF_MAX_SEC:60}
+      resumeOnBoot: ${PRESENCE_LIVE_RESUME_ON_BOOT:true}
+      frameReconnectIdleSec: ${PRESENCE_LIVE_FRAME_RECONNECT_IDLE_SEC:15}
+      heartbeatTimeoutSec: ${PRESENCE_LIVE_HEARTBEAT_TIMEOUT_SEC:180}

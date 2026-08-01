@@ -20,6 +20,8 @@ public interface IDataBoardManageService
 
     boolean updateStranger(String trackKey, DataBoardStrangerUpdateBo bo);
 
+    boolean mergeStrangerToPerson(String trackKey, Long targetPersonId);
+
     boolean deleteStranger(String trackKey);
 
     boolean updateCameraConfig(Long cameraId, DataBoardCameraUpdateBo bo);

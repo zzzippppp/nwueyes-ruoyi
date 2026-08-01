@@ -31,6 +31,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             updated_at = NOW()
         WHERE stat_date = #{statDate}
           AND person_id = #{personId}
+          AND (first_enter_at IS NULL OR #{eventTime} &gt;= first_enter_at)
     </update>
 
     <update id="updateStatus">
@@ -41,6 +42,29 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         WHERE stat_date = #{statDate}
           AND person_id = #{personId}
     </update>
+
+    <insert id="upsertManual">
+        INSERT INTO person_daily_attendance (
+            stat_date, person_id, camera_id, first_enter_at, last_exit_at,
+            total_dwell_seconds, enter_count, attendance_status, is_attended,
+            current_session_id, updated_at
+        ) VALUES (
+            #{statDate}, #{personId}, #{cameraId}, #{firstEnterAt}, #{lastExitAt},
+            COALESCE(#{totalDwellSeconds}, 0), COALESCE(#{enterCount}, 0),
+            CAST(#{attendanceStatus} AS attendance_status), #{isAttended},
+            #{sessionId}, NOW()
+        )
+        ON CONFLICT (stat_date, person_id) DO UPDATE SET
+            camera_id = COALESCE(EXCLUDED.camera_id, person_daily_attendance.camera_id),
+            first_enter_at = EXCLUDED.first_enter_at,
+            last_exit_at = EXCLUDED.last_exit_at,
+            total_dwell_seconds = COALESCE(EXCLUDED.total_dwell_seconds, 0),
+            enter_count = COALESCE(EXCLUDED.enter_count, 0),
+            attendance_status = EXCLUDED.attendance_status,
+            is_attended = EXCLUDED.is_attended,
+            current_session_id = EXCLUDED.current_session_id,
+            updated_at = NOW()
+    </insert>
 
     <select id="selectDailyList" resultType="com.ruoyi.system.domain.vo.PersonDailyAttendanceVo">
         SELECT
@@ -53,7 +77,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             pda.camera_id AS cameraId,
             c.device_name AS deviceName,
             pda.first_enter_at AS firstEnterAt,
-            pda.last_exit_at AS lastExitAt,
+            CASE
+                WHEN pda.last_exit_at IS NOT NULL
+                 AND pda.first_enter_at IS NOT NULL
+                 AND pda.last_exit_at &lt; pda.first_enter_at
+                THEN NULL
+                ELSE pda.last_exit_at
+            END AS lastExitAt,
             pda.total_dwell_seconds AS totalDwellSeconds,
             pda.enter_count AS enterCount,
             pda.attendance_status::text AS attendanceStatus,
@@ -71,7 +101,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="personType != null and personType != ''">
                 AND p.person_type::text = #{personType}
             </if>
-            <if test="personType == null or personType == ''">
+            <if test="(personType == null or personType == '') and personId == null">
                 AND p.person_type::text IN ('student', 'staff')
             </if>
             <if test="displayName != null and displayName != ''">
@@ -79,6 +109,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             </if>
             <if test="employeeNo != null and employeeNo != ''">
                 AND p.employee_no = #{employeeNo}
+            </if>
+            <if test="personId != null">
+                AND pda.person_id = #{personId}
             </if>
             <if test="attendanceStatus != null and attendanceStatus != ''">
                 AND pda.attendance_status::text = #{attendanceStatus}

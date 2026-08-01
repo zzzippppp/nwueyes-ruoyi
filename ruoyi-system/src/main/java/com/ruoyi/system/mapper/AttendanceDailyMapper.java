@@ -18,10 +18,17 @@ public interface AttendanceDailyMapper
     int updateStatus(@Param("statDate") Date statDate, @Param("personId") Long personId,
             @Param("attendanceStatus") String attendanceStatus, @Param("sessionId") Long sessionId);
 
+    int upsertManual(@Param("statDate") Date statDate, @Param("personId") Long personId,
+            @Param("cameraId") Long cameraId, @Param("firstEnterAt") java.util.Date firstEnterAt,
+            @Param("lastExitAt") java.util.Date lastExitAt, @Param("totalDwellSeconds") Integer totalDwellSeconds,
+            @Param("enterCount") Integer enterCount, @Param("attendanceStatus") String attendanceStatus,
+            @Param("isAttended") Boolean isAttended, @Param("sessionId") Long sessionId);
+
     List<PersonDailyAttendanceVo> selectDailyList(@Param("beginDate") Date beginDate, @Param("endDate") Date endDate,
             @Param("cameraId") Long cameraId, @Param("personType") String personType,
             @Param("displayName") String displayName, @Param("employeeNo") String employeeNo,
-            @Param("attendanceStatus") String attendanceStatus, @Param("limit") int limit);
+            @Param("personId") Long personId, @Param("attendanceStatus") String attendanceStatus,
+            @Param("limit") int limit);
 
     int countRegistryPersons();
 

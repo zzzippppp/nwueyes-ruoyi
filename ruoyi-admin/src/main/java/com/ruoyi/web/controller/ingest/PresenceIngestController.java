@@ -7,7 +7,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.annotation.Anonymous;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.utils.StringUtils;
@@ -24,8 +26,10 @@ import com.ruoyi.system.service.IPresenceVideoClipService;
 import com.ruoyi.system.service.IPresenceReplayService;
 import com.ruoyi.system.domain.vo.AnalyzeEmbedResultVo;
 import com.ruoyi.system.domain.vo.AnalyzeEventMatchResultVo;
+import com.ruoyi.system.domain.vo.FaceCompareResultVo;
 import com.ruoyi.system.domain.vo.PresenceDoorConfigVo;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -164,5 +168,51 @@ public class PresenceIngestController
     {
         AnalyzeEventMatchResultVo result = presenceEmbedService.matchAnalyzeEvents(taskId);
         return AjaxResult.success(result);
+    }
+
+    /**
+     * 视频测试：对 YOLO 分析任务的源视频做 AI 样貌/行为理解。
+     */
+    @PostMapping("/analyze/ai/{taskId}")
+    public AjaxResult analyzeTaskAi(@PathVariable("taskId") String taskId,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        try
+        {
+            @SuppressWarnings("unchecked")
+            List<String> modelKeys = body == null ? null : (List<String>) body.get("modelKeys");
+            return AjaxResult.success(presenceReplayService.submitAiAnalysisForTask(taskId, modelKeys));
+        }
+        catch (IllegalArgumentException | IllegalStateException ex)
+        {
+            return AjaxResult.error(ex.getMessage());
+        }
+        catch (Exception ex)
+        {
+            return AjaxResult.error("AI 分析失败: " + ex.getMessage());
+        }
+    }
+
+    /**
+     * 两张人脸对比：gallery=人脸库证件照，camera=摄像头抓拍，流程与进门匹配同款（detect embed + cosine）。
+     */
+    @PostMapping("/face-compare")
+    public AjaxResult compareFaces(
+            @RequestParam("galleryFile") MultipartFile galleryFile,
+            @RequestParam("cameraFile") MultipartFile cameraFile)
+    {
+        try
+        {
+            FaceCompareResultVo result = presenceEmbedService.compareFaces(galleryFile, cameraFile);
+            return AjaxResult.success(result);
+        }
+        catch (IllegalArgumentException | IllegalStateException ex)
+        {
+            return AjaxResult.error(ex.getMessage());
+        }
+        catch (Exception ex)
+        {
+            return AjaxResult.error("人脸对比失败: " + ex.getMessage());
+        }
     }
 }

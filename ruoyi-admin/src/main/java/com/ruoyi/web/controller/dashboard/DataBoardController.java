@@ -29,8 +29,10 @@ import com.ruoyi.system.domain.bo.DataBoardSessionFilterBo;
 import com.ruoyi.system.domain.bo.DataBoardCameraUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardPersonUpdateBo;
 import com.ruoyi.system.domain.bo.DataBoardSessionUpdateBo;
+import com.ruoyi.system.domain.bo.DataBoardStrangerMergeBo;
 import com.ruoyi.system.domain.bo.DataBoardStrangerUpdateBo;
 import com.ruoyi.system.domain.vo.CameraConfigVo;
+import com.ruoyi.system.domain.vo.DataBoardPersonSearchVo;
 import com.ruoyi.system.domain.vo.DataBoardSummaryVo;
 import com.ruoyi.system.storage.PresenceStoragePaths;
 import com.ruoyi.system.service.IDataBoardService;
@@ -137,6 +139,26 @@ public class DataBoardController extends BaseController
     public AjaxResult deleteStranger(@PathVariable("trackKey") String trackKey)
     {
         return dataBoardManageService.deleteStranger(trackKey) ? AjaxResult.success() : AjaxResult.error("删除失败");
+    }
+
+    @PostMapping("/strangers/{trackKey}/merge")
+    public AjaxResult mergeStranger(@PathVariable("trackKey") String trackKey,
+            @RequestBody DataBoardStrangerMergeBo bo)
+    {
+        if (bo.getTargetPersonId() == null)
+        {
+            return AjaxResult.error("目标人员 ID 不能为空");
+        }
+        return dataBoardManageService.mergeStrangerToPerson(trackKey, bo.getTargetPersonId())
+                ? AjaxResult.success() : AjaxResult.error("合并失败");
+    }
+
+    @GetMapping("/persons/search")
+    public AjaxResult searchPersons(@RequestParam(value = "keyword", required = false) String keyword)
+    {
+        java.util.List<DataBoardPersonSearchVo> list = dataBoardService.searchPersons(
+                StringUtils.isEmpty(keyword) ? "" : keyword.trim());
+        return AjaxResult.success(list);
     }
 
     @PutMapping("/cameras/{cameraId}")

@@ -48,6 +48,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             bl.body_match_score AS bodyMatchScore,
             bl.quality_flag AS qualityFlag,
             bl.behavior_analysis AS behaviorAnalysis,
+            bl.person_count AS personCount,
+            bl.snapshot_bbox AS snapshotBbox,
             bl.scene_group_id AS sceneGroupId,
             bl.clip_id AS clipId,
             bl.analysis_status AS analysisStatus,
@@ -65,6 +67,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             </if>
             <if test="eventType != null and eventType != ''">
                 AND bl.event_type = #{eventType}
+            </if>
+            <if test="displayName != null and displayName != ''">
+                AND p.display_name ILIKE CONCAT('%', #{displayName}, '%')
+            </if>
+            <if test="personType != null and personType != ''">
+                AND p.person_type::text = #{personType}
+            </if>
+            <if test="personId != null">
+                AND bl.person_id = #{personId}
             </if>
         </where>
         ORDER BY bl.event_time DESC, bl.id DESC
@@ -94,6 +105,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             track_key,
             session_id,
             behavior_analysis,
+            person_count,
+            snapshot_bbox,
             created_at
         ) VALUES (
             #{eventType},
@@ -107,6 +120,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             #{trackKey},
             #{sessionId},
             #{behaviorAnalysis},
+            #{personCount},
+            #{snapshotBbox},
             NOW()
         )
     </insert>
@@ -124,6 +139,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             face_match_score = #{faceMatchScore},
             body_match_score = #{bodyMatchScore},
             quality_flag = COALESCE(#{qualityFlag}, quality_flag)
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateBehaviorLogVideoBind">
+        UPDATE behavior_logs
+        SET scene_group_id = COALESCE(#{sceneGroupId}, scene_group_id),
+            clip_id = COALESCE(#{clipId}, clip_id),
+            analysis_status = COALESCE(#{analysisStatus}, analysis_status)
         WHERE id = #{id}
     </update>
 

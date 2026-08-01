@@ -173,9 +173,13 @@ class PerTrackDoorGate:
 
     def mark_inside_silent(self, track_id: int, *, from_other: bool = False) -> None:
         """换 ID / 门内深处首次检出：记 inside，不发出 enter（不因他人已在场而静默）。"""
+        prev = self._side.get(track_id)
         self._side[track_id] = SIDE_INSIDE
         if from_other:
             self._silent_from_other[track_id] = True
+        # 场景短片常从「人已在门内」开拍：计入门内人数，便于后续合法出门
+        if prev != SIDE_INSIDE:
+            self._global_inside_count += 1
 
     def _reset_history(self, track_id: int, cy: float) -> None:
         self._foot_history[track_id] = deque([cy], maxlen=self.history_len)
@@ -197,19 +201,33 @@ class PerTrackDoorGate:
                 flush=True,
             )
 
+    def _history_was_inside(self, track_id: int) -> bool:
+        """脚点历史是否到过门线内侧（图像坐标 y 越大越靠门内）。"""
+        hist = self._foot_history.get(track_id)
+        if not hist:
+            return False
+        return any(y >= self.line_y for y in hist)
+
     def filter_event(self, track_id: int, event: Optional[str]) -> Optional[str]:
         if event is None:
             return None
         if event == "enter" and self.side(track_id) == SIDE_INSIDE:
             return None
         if event == "exit":
-            if self.had_real_enter(track_id):
-                if self.side(track_id) == SIDE_OUTSIDE:
-                    return None
-            elif self._silent_from_other.get(track_id, False):
+            # 已出门后的重复 exit
+            if self.had_real_enter(track_id) and self.side(track_id) == SIDE_OUTSIDE:
                 return None
-            elif not self.had_real_enter(track_id) and self._global_inside_count <= 0:
-                return None
+            # 本轨迹曾真实进门 / 当前在门内（含短片内先出现在门内）→ 允许出门
+            if self.had_real_enter(track_id) or self.side(track_id) == SIDE_INSIDE:
+                return event
+            # 脚点曾到过门内侧（慢速穿线、换 ID 前后）→ 允许出门
+            if self._history_was_inside(track_id):
+                return event
+            # 本段分析里已有人在门内，允许换 ID 后的几何出门
+            if self._global_inside_count > 0:
+                return event
+            # 纯走廊轨迹、从未进门：不记出门（避免误报）
+            return None
         return event
 
     def _exit_margin_for(self, track_id: int) -> int:

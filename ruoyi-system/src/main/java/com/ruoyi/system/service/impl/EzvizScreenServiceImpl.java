@@ -70,6 +70,8 @@ public class EzvizScreenServiceImpl implements IEzvizScreenService
     {
         EzvizScreenConfigVo configVo = new EzvizScreenConfigVo();
         configVo.setDefaultChannelNo(resolveDefaultChannelNo());
+        // 监控大屏只读取本地 camera 表，不再调用萤石 token/device/list。
+        // 在线状态由“设备信息”页面维护，拉流时由后端再次强制校验。
         configVo.setCameras(cameraService.listMonitorCameras());
         try
         {
