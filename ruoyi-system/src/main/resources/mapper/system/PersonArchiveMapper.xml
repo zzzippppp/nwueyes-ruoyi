@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.PersonArchiveMapper">
+
+    <sql id="archiveSelectCols">
+        p.id AS personId,
+        p.display_name AS displayName,
+        p.person_type::text AS personType,
+        p.employee_no AS employeeNo,
+        COALESCE(p.status, '0') AS status,
+        COALESCE(p.note, '') AS note,
+        COALESCE(p.phone, '') AS phone,
+        COALESCE(p.gender, '2') AS gender,
+        COALESCE(p.face_image_url, fp.image_url, '') AS faceImageUrl,
+        COALESCE(fc.face_count, 0) AS faceCount,
+        p.created_at AS createdAt,
+        p.updated_at AS updatedAt
+    </sql>
+
+    <select id="selectPersonArchiveList" resultType="com.ruoyi.system.domain.vo.PersonArchiveVo">
+        SELECT
+            <include refid="archiveSelectCols"/>
+        FROM persons p
+        LEFT JOIN LATERAL (
+            SELECT image_url
+            FROM face_profiles
+            WHERE person_id = p.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) fp ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COUNT(1)::int AS face_count
+            FROM face_profiles
+            WHERE person_id = p.id
+        ) fc ON TRUE
+        WHERE (
+            EXISTS (SELECT 1 FROM face_profiles x WHERE x.person_id = p.id)
+            OR (p.face_image_url IS NOT NULL AND p.face_image_url &lt;&gt; '')
+        )
+        <if test="displayName != null and displayName != ''">
+            AND p.display_name LIKE CONCAT('%', #{displayName}, '%')
+        </if>
+        <if test="employeeNo != null and employeeNo != ''">
+            AND p.employee_no LIKE CONCAT('%', #{employeeNo}, '%')
+        </if>
+        <if test="personType != null and personType != ''">
+            AND p.person_type::text = #{personType}
+        </if>
+        <if test="status != null and status != ''">
+            AND COALESCE(p.status, '0') = #{status}
+        </if>
+        ORDER BY p.id DESC
+    </select>
+
+    <select id="selectPersonArchiveById" resultType="com.ruoyi.system.domain.vo.PersonArchiveVo">
+        SELECT
+            <include refid="archiveSelectCols"/>
+        FROM persons p
+        LEFT JOIN LATERAL (
+            SELECT image_url
+            FROM face_profiles
+            WHERE person_id = p.id
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) fp ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COUNT(1)::int AS face_count
+            FROM face_profiles
+            WHERE person_id = p.id
+        ) fc ON TRUE
+        WHERE p.id = #{personId}
+    </select>
+
+    <select id="selectFaceImageUrls" resultType="java.lang.String">
+        SELECT image_url
+        FROM face_profiles
+        WHERE person_id = #{personId}
+          AND image_url IS NOT NULL
+          AND image_url &lt;&gt; ''
+        ORDER BY created_at DESC
+    </select>
+
+    <insert id="insertPersonArchive">
+        INSERT INTO persons (
+            display_name, person_type, employee_no, status, note, phone, gender, created_at, updated_at
+        ) VALUES (
+            #{displayName},
+            CAST(#{personType} AS person_type),
+            #{employeeNo},
+            COALESCE(#{status}, '0'),
+            #{note},
+            #{phone},
+            COALESCE(#{gender}, '0'),
+            NOW(),
+            NOW()
+        )
+    </insert>
+
+    <select id="selectLastPersonId" resultType="java.lang.Long">
+        SELECT id FROM persons ORDER BY id DESC LIMIT 1
+    </select>
+
+    <update id="updatePersonArchive">
+        UPDATE persons
+        SET display_name = #{displayName},
+            person_type = CAST(#{personType} AS person_type),
+            employee_no = #{employeeNo},
+            status = COALESCE(#{status}, status, '0'),
+            note = #{note},
+            phone = #{phone},
+            gender = COALESCE(#{gender}, gender, '0'),
+            updated_at = NOW()
+        WHERE id = #{personId}
+    </update>
+
+    <update id="updateFaceImageUrl">
+        UPDATE persons
+        SET face_image_url = #{faceImageUrl},
+            updated_at = NOW()
+        WHERE id = #{personId}
+    </update>
+
+    <delete id="deletePersonArchiveByIds">
+        DELETE FROM persons
+        WHERE id IN
+        <foreach collection="personIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <select id="selectPersonIdByEmployeeNo" resultType="java.lang.Long">
+        SELECT id FROM persons WHERE employee_no = #{employeeNo} LIMIT 1
+    </select>
+</mapper>

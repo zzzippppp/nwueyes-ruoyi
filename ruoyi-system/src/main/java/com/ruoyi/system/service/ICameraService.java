@@ -18,6 +18,8 @@ public interface ICameraService
 
     CameraConfigVo getCameraConfig(Long cameraId);
 
+    CameraConfigVo updateDoorConfig(Long cameraId, Integer lineY, String roi, Integer refWidth, Integer refHeight);
+
     List<DeviceInfo> selectDeviceInfoList(DeviceInfo query);
 
     DeviceInfo selectDeviceInfoById(Long id);

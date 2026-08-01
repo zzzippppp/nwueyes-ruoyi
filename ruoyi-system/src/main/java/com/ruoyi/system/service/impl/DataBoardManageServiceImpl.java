@@ -2,8 +2,10 @@ package com.ruoyi.system.service.impl;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -59,7 +61,7 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
     public boolean updatePerson(Long personId, DataBoardPersonUpdateBo bo)
     {
         return dataBoardMapper.updatePerson(personId, bo.getDisplayName(), normalizePersonType(bo.getPersonType()),
-                normalizeEmployeeNo(bo.getEmployeeNo()), bo.getNote()) > 0;
+                normalizeEmployeeNo(bo.getEmployeeNo()), bo.getNote(), null, null) > 0;
     }
 
     @Override
@@ -87,14 +89,19 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
     @Transactional(rollbackFor = Exception.class)
     public boolean updateStranger(String trackKey, DataBoardStrangerUpdateBo bo)
     {
-        Long strangerId = dataBoardMapper.selectPersonIdByTrackKey(trackKey);
+        Long strangerId = consolidateTracksToPerson(trackKey, bo.getRelatedTrackKeys());
         if (strangerId == null)
         {
             return false;
         }
-        String personType = normalizeRegistryType(bo.getPersonType());
+
+        String personType = resolveStrangerPersonType(bo);
         String employeeNo = normalizeEmployeeNo(bo.getEmployeeNo());
         String displayName = defaultName(bo.getDisplayName());
+        String note = !StringUtils.isEmpty(bo.getNote()) ? bo.getNote()
+                : (bo.getTagsText() != null ? bo.getTagsText() : "");
+        String phone = bo.getPhone() != null ? bo.getPhone() : "";
+        String gender = normalizeGender(bo.getGender());
 
         if (!StringUtils.isEmpty(employeeNo))
         {
@@ -106,7 +113,24 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
             }
         }
 
-        return dataBoardMapper.updatePerson(strangerId, displayName, personType, employeeNo, "") > 0;
+        return dataBoardMapper.updatePerson(strangerId, displayName, personType, employeeNo, note, phone, gender) > 0;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean mergeStrangerToPerson(String trackKey, Long targetPersonId)
+    {
+        Long strangerId = ensurePersonForTrack(trackKey);
+        if (strangerId == null || targetPersonId == null)
+        {
+            return false;
+        }
+        if (strangerId.equals(targetPersonId))
+        {
+            return true;
+        }
+        mergePerson(strangerId, targetPersonId);
+        return true;
     }
 
     @Override
@@ -159,14 +183,100 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
         return imageUrl;
     }
 
+    /**
+     * 将主 track 及人脸去重关联的 track 统一绑定到同一 persons 记录
+     */
+    private Long consolidateTracksToPerson(String primaryTrackKey, List<String> relatedTrackKeys)
+    {
+        Long primaryPersonId = ensurePersonForTrack(primaryTrackKey);
+        if (primaryPersonId == null)
+        {
+            return null;
+        }
+        Set<String> trackKeys = new LinkedHashSet<>();
+        trackKeys.add(primaryTrackKey);
+        if (relatedTrackKeys != null)
+        {
+            for (String tk : relatedTrackKeys)
+            {
+                if (!StringUtils.isEmpty(tk))
+                {
+                    trackKeys.add(tk);
+                }
+            }
+        }
+        for (String trackKey : trackKeys)
+        {
+            if (primaryTrackKey.equals(trackKey))
+            {
+                dataBoardMapper.bindTrackToPerson(trackKey, primaryPersonId);
+                continue;
+            }
+            Long otherPersonId = dataBoardMapper.selectPersonIdByTrackKey(trackKey);
+            if (otherPersonId != null && !otherPersonId.equals(primaryPersonId))
+            {
+                dataBoardMapper.reassignSessionsPerson(otherPersonId, primaryPersonId);
+                dataBoardMapper.reassignBehaviorLogsPerson(otherPersonId, primaryPersonId);
+                dataBoardMapper.deletePerson(otherPersonId);
+            }
+            dataBoardMapper.bindTrackToPerson(trackKey, primaryPersonId);
+        }
+        return primaryPersonId;
+    }
+
+    /**
+     * 确保 track 有关联的 person 记录；没有则自动创建 stranger 并绑定
+     */
+    private Long ensurePersonForTrack(String trackKey)
+    {
+        Long personId = dataBoardMapper.selectPersonIdByTrackKey(trackKey);
+        if (personId != null)
+        {
+            return personId;
+        }
+        dataBoardMapper.insertPerson("未知访客", TYPE_STRANGER, null, null);
+        Long newId = dataBoardMapper.selectLastPersonId();
+        if (newId != null)
+        {
+            dataBoardMapper.bindTrackToPerson(trackKey, newId);
+        }
+        return newId;
+    }
+
     private void mergePerson(Long fromPersonId, Long toPersonId)
     {
         attendanceDailyMapper.deletePersonDailyByPerson(fromPersonId);
         dataBoardMapper.reassignSessionsPerson(fromPersonId, toPersonId);
         dataBoardMapper.reassignBehaviorLogsPerson(fromPersonId, toPersonId);
-        dataBoardMapper.reassignFaceProfilesPerson(fromPersonId, toPersonId);
-        dataBoardMapper.reassignBodyProfilesPerson(fromPersonId, toPersonId);
+        // 人脸/体态向量保留目标人员原有档案，不合并陌生人向量；删除源人员时 CASCADE 清理
         dataBoardMapper.deletePerson(fromPersonId);
+    }
+
+    private String resolveStrangerPersonType(DataBoardStrangerUpdateBo bo)
+    {
+        if (!StringUtils.isEmpty(bo.getPersonType()))
+        {
+            return normalizePersonType(bo.getPersonType());
+        }
+        if ("known".equalsIgnoreCase(bo.getIdentityType()))
+        {
+            return TYPE_STUDENT;
+        }
+        return TYPE_STRANGER;
+    }
+
+    private String normalizeGender(String gender)
+    {
+        if (gender == null)
+        {
+            return "2";
+        }
+        String value = String.valueOf(gender).trim();
+        if ("0".equals(value) || "1".equals(value) || "2".equals(value))
+        {
+            return value;
+        }
+        return "2";
     }
 
     private String normalizePersonType(String raw)

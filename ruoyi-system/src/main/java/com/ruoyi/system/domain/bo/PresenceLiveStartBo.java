@@ -22,6 +22,12 @@ public class PresenceLiveStartBo
 
     private String roi;
 
+    /** 门线/ROI 标定参考宽度；空则 Python 侧默认 1920 */
+    private Integer refWidth;
+
+    /** 门线/ROI 标定参考高度；空则 Python 侧默认 1080 */
+    private Integer refHeight;
+
     private String validCode;
 
     public String getDeviceSerial()
@@ -82,6 +88,26 @@ public class PresenceLiveStartBo
     public void setRoi(String roi)
     {
         this.roi = roi;
+    }
+
+    public Integer getRefWidth()
+    {
+        return refWidth;
+    }
+
+    public void setRefWidth(Integer refWidth)
+    {
+        this.refWidth = refWidth;
+    }
+
+    public Integer getRefHeight()
+    {
+        return refHeight;
+    }
+
+    public void setRefHeight(Integer refHeight)
+    {
+        this.refHeight = refHeight;
     }
 
     public String getValidCode()

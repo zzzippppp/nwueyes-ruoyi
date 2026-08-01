@@ -4,24 +4,29 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.common.utils.uuid.IdUtils;
 import com.ruoyi.system.config.PresenceIngestProperties;
 import com.ruoyi.system.domain.vo.AnalyzeEmbedResultVo;
 import com.ruoyi.system.domain.vo.AnalyzeEventMatchItemVo;
 import com.ruoyi.system.domain.vo.AnalyzeEventMatchResultVo;
 import com.ruoyi.system.domain.vo.CaptureTrackEmbedVo;
 import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
+import com.ruoyi.system.domain.vo.FaceCompareResultVo;
 import com.ruoyi.system.domain.vo.PresenceReplayTaskVo;
 import com.ruoyi.system.domain.vo.PresenceTrackMatchPreviewVo;
 import com.ruoyi.system.domain.vo.VirtualOpenSessionVo;
@@ -286,6 +291,77 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
         return embedKind(kind, imageUrl);
     }
 
+    @Override
+    public FaceCompareResultVo compareFaces(MultipartFile galleryFile, MultipartFile cameraFile) throws Exception
+    {
+        if (galleryFile == null || galleryFile.isEmpty())
+        {
+            throw new IllegalArgumentException("请上传人脸库照片");
+        }
+        if (cameraFile == null || cameraFile.isEmpty())
+        {
+            throw new IllegalArgumentException("请上传摄像头抓拍照片");
+        }
+
+        Path tempDir = storagePaths.storageRoot().resolve("_tmp_face_compare").resolve(IdUtils.fastSimpleUUID());
+        Files.createDirectories(tempDir);
+        Path galleryPath = tempDir.resolve("gallery" + imageExt(galleryFile.getOriginalFilename()));
+        Path cameraPath = tempDir.resolve("camera" + imageExt(cameraFile.getOriginalFilename()));
+        try
+        {
+            galleryFile.transferTo(galleryPath.toFile());
+            cameraFile.transferTo(cameraPath.toFile());
+
+            EmbeddingVectorVo galleryEmb = embedFromFile("face", galleryPath);
+            EmbeddingVectorVo cameraEmb = embedFromFile("face", cameraPath);
+            if (!Boolean.TRUE.equals(galleryEmb.getOk()) || galleryEmb.getEmbedding() == null)
+            {
+                throw new IllegalStateException("人脸库照片向量抽取失败: "
+                        + StringUtils.nvl(galleryEmb.getError(), "未知错误"));
+            }
+            if (!Boolean.TRUE.equals(cameraEmb.getOk()) || cameraEmb.getEmbedding() == null)
+            {
+                throw new IllegalStateException("摄像头照片向量抽取失败: "
+                        + StringUtils.nvl(cameraEmb.getError(), "未知错误"));
+            }
+
+            double score = cosineSimilarity(galleryEmb.getEmbedding(), cameraEmb.getEmbedding());
+            Double threshold = ingestProperties.getFaceMatchThreshold();
+            if (threshold == null)
+            {
+                threshold = 0.35;
+            }
+            String mode = ingestProperties.getFaceEmbedMode();
+            if (StringUtils.isEmpty(mode))
+            {
+                mode = "detect";
+            }
+
+            FaceCompareResultVo vo = new FaceCompareResultVo();
+            vo.setScore(round4(score));
+            vo.setThreshold(threshold);
+            vo.setMatched(score >= threshold);
+            vo.setFaceEmbedMode(mode);
+            vo.setGalleryEmbedding(galleryEmb);
+            vo.setCameraEmbedding(cameraEmb);
+            vo.setGalleryQuality(galleryEmb.getQuality());
+            vo.setCameraQuality(cameraEmb.getQuality());
+            return vo;
+        }
+        finally
+        {
+            try
+            {
+                Files.deleteIfExists(galleryPath);
+                Files.deleteIfExists(cameraPath);
+                Files.deleteIfExists(tempDir);
+            }
+            catch (Exception ignored)
+            {
+            }
+        }
+    }
+
     private EmbeddingVectorVo embedKind(String kind, String imageUrl)
     {
         EmbeddingVectorVo vo = new EmbeddingVectorVo();
@@ -304,7 +380,12 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
             vo.setError("图片文件不存在: " + imageUrl);
             return vo;
         }
-        Path file = fileOpt.get();
+        return embedFromFile(kind, fileOpt.get());
+    }
+
+    private EmbeddingVectorVo embedFromFile(String kind, Path file)
+    {
+        EmbeddingVectorVo vo = new EmbeddingVectorVo();
         try
         {
             JsonNode payload = runEmbedScript(kind, file);
@@ -333,9 +414,58 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
             vo.setOk(false);
             vo.setDim(512);
             vo.setError(ex.getMessage());
-            vo.setImagePath(file.toAbsolutePath().toString().replace("\\", "/"));
+            vo.setImagePath(file == null ? "" : file.toAbsolutePath().toString().replace("\\", "/"));
             return vo;
         }
+    }
+
+    private static double cosineSimilarity(List<Double> a, List<Double> b)
+    {
+        if (a == null || b == null || a.isEmpty() || a.size() != b.size())
+        {
+            return 0.0;
+        }
+        double dot = 0.0;
+        double na = 0.0;
+        double nb = 0.0;
+        for (int i = 0; i < a.size(); i++)
+        {
+            double x = a.get(i) == null ? 0.0 : a.get(i);
+            double y = b.get(i) == null ? 0.0 : b.get(i);
+            dot += x * y;
+            na += x * x;
+            nb += y * y;
+        }
+        if (na <= 1e-12 || nb <= 1e-12)
+        {
+            return 0.0;
+        }
+        return dot / (Math.sqrt(na) * Math.sqrt(nb));
+    }
+
+    private static double round4(double v)
+    {
+        return Math.round(v * 10000.0) / 10000.0;
+    }
+
+    private static String imageExt(String name)
+    {
+        if (name == null)
+        {
+            return ".jpg";
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        int dot = lower.lastIndexOf('.');
+        if (dot < 0)
+        {
+            return ".jpg";
+        }
+        String ext = lower.substring(dot);
+        if (ext.length() > 8)
+        {
+            return ".jpg";
+        }
+        return ext;
     }
 
     private JsonNode runEmbedScript(String kind, Path imageFile) throws Exception
@@ -350,7 +480,12 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
         if ("face".equals(kind))
         {
             cmd.add("--face-mode");
-            cmd.add("crop");
+            String faceMode = ingestProperties.getFaceEmbedMode();
+            if (StringUtils.isEmpty(faceMode))
+            {
+                faceMode = "detect";
+            }
+            cmd.add(faceMode);
             cmd.add("--face-model");
             cmd.add(Objects.requireNonNullElse(ingestProperties.getFaceEmbedModel(), "buffalo_l"));
             Double minScore = ingestProperties.getFaceMinDetScore();
@@ -388,21 +523,69 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
         throw new IllegalStateException("embedding 脚本失败 exitCode=" + exitCode + " log=" + abbreviate(text, 800));
     }
 
+    /** 与 scripts/embedding_io.py 中 EMBED_JSON_MARKER 保持一致 */
+    private static final String EMBED_JSON_MARKER = "__NWUEYES_EMBED_JSON__";
+
     private JsonNode extractJson(String text)
     {
         if (StringUtils.isEmpty(text))
         {
             return null;
         }
-        int start = text.indexOf('{');
-        int end = text.lastIndexOf('}');
-        if (start < 0 || end <= start)
+        // 优先：标记后的单行 JSON（避开 InsightFace/ORT 日志里的 {'CPUExecutionProvider': {}}）
+        int marker = text.lastIndexOf(EMBED_JSON_MARKER);
+        if (marker >= 0)
+        {
+            String after = text.substring(marker + EMBED_JSON_MARKER.length()).trim();
+            int nl = after.indexOf('\n');
+            if (nl >= 0)
+            {
+                after = after.substring(0, nl).trim();
+            }
+            JsonNode marked = tryParseJson(after);
+            if (marked != null)
+            {
+                return marked;
+            }
+        }
+        // 回退：从后往前找能解析且带 ok 字段的 JSON 对象
+        for (int end = text.lastIndexOf('}'); end > 0; end = text.lastIndexOf('}', end - 1))
+        {
+            int depth = 0;
+            for (int i = end; i >= 0; i--)
+            {
+                char c = text.charAt(i);
+                if (c == '}')
+                {
+                    depth++;
+                }
+                else if (c == '{')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        JsonNode node = tryParseJson(text.substring(i, end + 1));
+                        if (node != null && node.has("ok"))
+                        {
+                            return node;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private JsonNode tryParseJson(String candidate)
+    {
+        if (StringUtils.isEmpty(candidate))
         {
             return null;
         }
         try
         {
-            return objectMapper.readTree(text.substring(start, end + 1));
+            return objectMapper.readTree(candidate);
         }
         catch (Exception ex)
         {

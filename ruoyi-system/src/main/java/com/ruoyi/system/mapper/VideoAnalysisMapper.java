@@ -46,7 +46,7 @@ public interface VideoAnalysisMapper
             @Param("summary") String summary,
             @Param("appearance") String appearance,
             @Param("behavior") String behavior,
-            @Param("riskLevel") String riskLevel,
+            @Param("personCount") Integer personCount,
             @Param("rawJson") String rawJson,
             @Param("errorMessage") String errorMessage);
 
@@ -60,7 +60,17 @@ public interface VideoAnalysisMapper
 
     int updateBehaviorLogSceneByRange(@Param("cameraId") Long cameraId,
             @Param("sceneGroupId") String sceneGroupId,
+            @Param("clipId") Long clipId,
             @Param("analysisStatus") String analysisStatus,
             @Param("startTime") Date startTime,
             @Param("endTime") Date endTime);
+
+    /** 事件入库后反向查找：同摄像头、时间落在片段窗内的场景视频 */
+    PresenceVideoClipVo selectMatchingSceneClip(@Param("cameraId") Long cameraId,
+            @Param("eventTime") Date eventTime);
+
+    /** 兼容历史：按 track 反查个人会话片段 */
+    PresenceVideoClipVo selectMatchingPersonClip(@Param("cameraId") Long cameraId,
+            @Param("trackKey") String trackKey,
+            @Param("eventTime") Date eventTime);
 }

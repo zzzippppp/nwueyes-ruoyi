@@ -48,6 +48,11 @@ public class BehaviorLogItemVo
 
     private String behaviorAnalysis;
 
+    private Integer personCount;
+
+    /** 监控画面人物框 JSON：x1/y1/x2/y2 为 0~1 归一化坐标 */
+    private String snapshotBbox;
+
     private String sceneGroupId;
 
     private Long clipId;
@@ -275,6 +280,26 @@ public class BehaviorLogItemVo
     public void setBehaviorAnalysis(String behaviorAnalysis)
     {
         this.behaviorAnalysis = behaviorAnalysis;
+    }
+
+    public Integer getPersonCount()
+    {
+        return personCount;
+    }
+
+    public void setPersonCount(Integer personCount)
+    {
+        this.personCount = personCount;
+    }
+
+    public String getSnapshotBbox()
+    {
+        return snapshotBbox;
+    }
+
+    public void setSnapshotBbox(String snapshotBbox)
+    {
+        this.snapshotBbox = snapshotBbox;
     }
 
     public String getSceneGroupId()

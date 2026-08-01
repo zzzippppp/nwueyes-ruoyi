@@ -114,7 +114,9 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         // 进门未匹配在案人员时一律建 stranger 档案
         if (personId == null)
         {
-            personId = registerStranger(trackKey, faceImageUrl, bodyImageUrl, faceEmbed, bodyEmbed);
+            // 不要用可复用的 yolo_1 做人名
+            displayName = "未登记-" + IdUtils.fastSimpleUUID().substring(0, 8);
+            personId = registerStranger(displayName, faceImageUrl, bodyImageUrl, faceEmbed, bodyEmbed);
             personKind = PERSON_TYPE_STRANGER;
             strangerRegistered = true;
         }
@@ -141,7 +143,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         String normalizedQuality = normalizeQuality(qualityFlag, faceImageUrl, bodyImageUrl);
 
         EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
-        ExitBodyMatch matched = resolveExitOpenSession(cameraId, trackKey, bodyEmbed);
+        ExitBodyMatch matched = resolveExitOpenSession(cameraId, trackKey, eventTime, bodyEmbed);
         if (matched == null || matched.session == null)
         {
             log.info(
@@ -151,6 +153,13 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         }
 
         PresenceOpenSessionVo open = matched.session;
+        if (eventTime != null && open.getArrivalAt() != null && eventTime.before(open.getArrivalAt()))
+        {
+            log.info(
+                    "orphan exit rejected: eventTime before arrival track={} sessionId={} eventTime={} arrivalAt={}",
+                    trackKey, open.getSessionId(), eventTime, open.getArrivalAt());
+            return buildSkippedOrphanExitResult(trackKey, normalizedQuality);
+        }
         Float bodyMatchScore = matched.score;
         int updated = presenceIngestMapper.closeSession(open.getSessionId(), eventTime, open.getPersonId(), bodyMatchScore);
         if (updated <= 0)
@@ -294,8 +303,10 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
     /**
      * 出门关 session：exit 体态向量 vs open session 的 enter_body_embedding，
      * 仅当相似度达到 bodyMatchThreshold 时才返回对应 session（非 trackKey 兜底）。
+     * 仅匹配 arrival_at &lt;= eventTime 的会话，避免乱序入库把早出门配到晚进门。
      */
-    private ExitBodyMatch resolveExitOpenSession(Long cameraId, String trackKey, EmbeddingVectorVo bodyEmbed)
+    private ExitBodyMatch resolveExitOpenSession(Long cameraId, String trackKey, Date eventTime,
+            EmbeddingVectorVo bodyEmbed)
     {
         if (!Boolean.TRUE.equals(bodyEmbed.getOk()) || bodyEmbed.getEmbedding() == null)
         {
@@ -307,7 +318,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         {
             return null;
         }
-        BodySessionMatchVo match = searchOpenSessionByBody(cameraId, literal);
+        BodySessionMatchVo match = searchOpenSessionByBody(cameraId, literal, eventTime);
         if (match == null || match.getSessionId() == null)
         {
             return null;
@@ -322,16 +333,20 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         {
             return null;
         }
+        if (eventTime != null && session.getArrivalAt() != null && eventTime.before(session.getArrivalAt()))
+        {
+            return null;
+        }
         ExitBodyMatch result = new ExitBodyMatch();
         result.session = session;
         result.score = match.getScore();
         return result;
     }
 
-    private BodySessionMatchVo searchOpenSessionByBody(Long cameraId, String embeddingLiteral)
+    private BodySessionMatchVo searchOpenSessionByBody(Long cameraId, String embeddingLiteral, Date eventTime)
     {
         return profileMatchMapper.searchTopOpenSessionByBody(cameraId, embeddingLiteral,
-                maxDistance(bodyMatchThreshold()));
+                maxDistance(bodyMatchThreshold()), eventTime);
     }
 
     private float bodyMatchThreshold()
@@ -348,10 +363,9 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         return vo;
     }
 
-    private Long registerStranger(String trackKey, String faceImageUrl, String bodyImageUrl,
+    private Long registerStranger(String displayName, String faceImageUrl, String bodyImageUrl,
             EmbeddingVectorVo faceEmbed, EmbeddingVectorVo bodyEmbed)
     {
-        String displayName = defaultDisplayName(trackKey);
         dataBoardMapper.insertPerson(displayName, PERSON_TYPE_STRANGER, null, "");
         Long personId = dataBoardMapper.selectLastPersonId();
         if (personId == null)
@@ -465,7 +479,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
     private float faceMatchThreshold()
     {
         Double value = ingestProperties.getFaceMatchThreshold();
-        return value == null ? 0.45f : value.floatValue();
+        return value == null ? 0.35f : value.floatValue();
     }
 
     private float maxDistance(float similarityThreshold)

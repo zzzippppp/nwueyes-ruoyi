@@ -7,6 +7,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.ruoyi.common.exception.ServiceException;
@@ -22,11 +26,16 @@ import com.ruoyi.system.service.ILanPreviewService;
 @Service
 public class LanPreviewServiceImpl implements ILanPreviewService
 {
+    private static final Logger log = LoggerFactory.getLogger(LanPreviewServiceImpl.class);
+
     private static final String STREAM_MODE = PresenceLiveStartBo.STREAM_LAN_RTSP;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
+
+    /** go2rtc 重启后用于恢复：streamName → 上游 RTSP */
+    private final ConcurrentHashMap<String, String> registeredStreams = new ConcurrentHashMap<>();
 
     @Autowired
     private IEzvizScreenService ezvizScreenService;
@@ -41,7 +50,7 @@ public class LanPreviewServiceImpl implements ILanPreviewService
     public String ensureLocalRtsp(PresenceLiveStartBo bo)
     {
         validateBo(bo);
-        applyCameraFromBo(bo);
+        applyCameraFromBo(bo, false);
 
         int channelNo = bo.getChannelNo() == null || bo.getChannelNo() < 1 ? 1 : bo.getChannelNo();
         CameraConfigVo cameraConfig = cameraService.getCameraConfig(bo.getCameraId());
@@ -57,6 +66,8 @@ public class LanPreviewServiceImpl implements ILanPreviewService
     @Override
     public LanPreviewVo startPreview(PresenceLiveStartBo bo)
     {
+        validateBo(bo);
+        applyCameraFromBo(bo, true);
         ensureLocalRtsp(bo);
         String streamName = buildStreamName(bo.getCameraId());
 
@@ -78,6 +89,29 @@ public class LanPreviewServiceImpl implements ILanPreviewService
         // 保留流注册，避免停止网页预览时误删 Python 识别/抽帧正在共用的流。
     }
 
+    @Override
+    public int reregisterCachedStreams()
+    {
+        if (registeredStreams.isEmpty())
+        {
+            return 0;
+        }
+        int attempted = 0;
+        for (Map.Entry<String, String> entry : registeredStreams.entrySet())
+        {
+            attempted++;
+            try
+            {
+                registerGo2RtcStream(entry.getKey(), entry.getValue());
+            }
+            catch (Exception ex)
+            {
+                log.warn("重新注册 go2rtc 流失败 name={}: {}", entry.getKey(), ex.getMessage());
+            }
+        }
+        return attempted;
+    }
+
     private void validateBo(PresenceLiveStartBo bo)
     {
         if (bo == null)
@@ -90,7 +124,7 @@ public class LanPreviewServiceImpl implements ILanPreviewService
         }
     }
 
-    private void applyCameraFromBo(PresenceLiveStartBo bo)
+    private void applyCameraFromBo(PresenceLiveStartBo bo, boolean requireOnline)
     {
         if (bo.getCameraId() == null)
         {
@@ -100,6 +134,10 @@ public class LanPreviewServiceImpl implements ILanPreviewService
         if (cfg == null)
         {
             throw new ServiceException("摄像头不存在: " + bo.getCameraId());
+        }
+        if (requireOnline && !"online".equalsIgnoreCase(StringUtils.nvl(cfg.getOnlineStatus(), "").trim()))
+        {
+            throw new ServiceException("摄像头当前为离线状态，请先在“设备信息”中将设备状态设置为在线");
         }
         if (!StringUtils.isEmpty(cfg.getSerialNo()))
         {
@@ -161,11 +199,13 @@ public class LanPreviewServiceImpl implements ILanPreviewService
         int status = sendRequest("PUT", url);
         if (status >= 200 && status < 300)
         {
+            registeredStreams.put(streamName, rtspUrl);
             return;
         }
         if (status == 400)
         {
             patchGo2RtcStream(streamName, rtspUrl, base);
+            registeredStreams.put(streamName, rtspUrl);
             return;
         }
         throw new ServiceException("go2rtc 注册预览流失败（HTTP " + status + "），请确认 go2rtc 已启动且可访问");

@@ -51,6 +51,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         LIMIT 1
     </select>
 
+    <select id="selectAnyOpenByPerson" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
+        SELECT
+            id AS sessionId,
+            camera_id AS cameraId,
+            person_id AS personId,
+            track_key AS trackKey,
+            arrival_at AS arrivalAt
+        FROM presence_sessions
+        WHERE person_id = #{personId}
+          AND status = 'open'
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
     <select id="selectLatestOpenByLocation" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,
@@ -103,6 +117,40 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             updated_at = NOW()
         WHERE id = #{sessionId}
           AND status = 'open'
+          AND arrival_at &lt;= #{eventTime}
+    </update>
+
+    <update id="closeOpenSessionsByPerson">
+        UPDATE presence_sessions
+        SET departure_at = #{eventTime},
+            dwell_seconds = GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (#{eventTime} - arrival_at))))::int,
+            status = 'closed',
+            updated_at = NOW()
+        WHERE person_id = #{personId}
+          AND status = 'open'
+          AND arrival_at &lt;= #{eventTime}
+    </update>
+
+    <!-- 标记未出勤：删掉当天会让列表算出 present/left 的会话（含跨日未关闭的 open） -->
+    <delete id="deleteSessionsByPersonDate">
+        DELETE FROM presence_sessions
+        WHERE person_id = #{personId}
+          AND (
+                attendance_date = #{attendanceDate}::date
+                OR (
+                    arrival_at &lt; (#{attendanceDate}::date + INTERVAL '1 day')
+                    AND (status = 'open' OR COALESCE(departure_at, NOW()) &gt; #{attendanceDate}::date)
+                )
+              )
+    </delete>
+
+    <update id="reopenSession">
+        UPDATE presence_sessions
+        SET status = 'open',
+            departure_at = NULL,
+            dwell_seconds = NULL,
+            updated_at = NOW()
+        WHERE id = #{sessionId}
     </update>
 
 </mapper>

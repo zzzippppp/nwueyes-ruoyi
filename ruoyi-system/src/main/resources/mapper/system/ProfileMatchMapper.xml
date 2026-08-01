@@ -33,6 +33,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
           AND ps.status = 'open'
           AND ps.enter_body_embedding IS NOT NULL
           AND (ps.enter_body_embedding &lt;=&gt; #{embedding}::vector) &lt;= #{maxDistance}
+          <if test="eventTime != null">
+          AND ps.arrival_at &lt;= #{eventTime}
+          </if>
         ORDER BY ps.enter_body_embedding &lt;=&gt; #{embedding}::vector
         LIMIT 1
     </select>

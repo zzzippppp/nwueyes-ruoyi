@@ -105,9 +105,14 @@ public class PresenceIngestProperties
     private Double faceMinDetScore = 0.45;
 
     /**
+     * 人脸向量模式：detect=检脸+对齐（推荐）；crop=整图拉伸112
+     */
+    private String faceEmbedMode = "detect";
+
+    /**
      * 进门人脸 cosine 相似度阈值（0~1，越高越严）
      */
-    private Double faceMatchThreshold = 0.45;
+    private Double faceMatchThreshold = 0.35;
 
     /**
      * 出门体态 vs open session enter_body_embedding 相似度阈值
@@ -164,6 +169,12 @@ public class PresenceIngestProperties
         /** 进门首次检出脸后继续择优的宽限时间（秒） */
         private double enterFaceGraceSec = 1.5;
 
+        /**
+         * 是否实时上报过线事件并追脸入库。
+         * false=只检人+场景录像，身份/行为交给离线视频分析（AB 方案）。
+         */
+        private boolean eventIngestEnabled = false;
+
         private int streamOpenTimeoutSec = 12;
 
         private int ingestCorePoolSize = 2;
@@ -211,6 +222,24 @@ public class PresenceIngestProperties
 
         /** Python 识别/抽帧连接 go2rtc 的本地 RTSP 地址 */
         private String go2rtcRtspBaseUrl = "rtsp://127.0.0.1:8554";
+
+        /** worker 异常退出后是否自动重启（人工停止除外） */
+        private boolean autoRestartEnabled = true;
+
+        /** 自动重启退避起始秒数 */
+        private double restartBackoffSec = 3.0;
+
+        /** 自动重启退避封顶秒数 */
+        private double restartBackoffMaxSec = 60.0;
+
+        /** Java 重启后是否自动恢复上次期望运行的识别任务 */
+        private boolean resumeOnBoot = true;
+
+        /** 持续无有效帧超过该秒数则触发 Python 侧重连 */
+        private double frameReconnectIdleSec = 15.0;
+
+        /** 运行中超过该秒数无 heartbeat 日志则强杀 worker 并自动拉起 */
+        private double heartbeatTimeoutSec = 180.0;
 
         public double getTargetDetectFps()
         {
@@ -310,6 +339,16 @@ public class PresenceIngestProperties
         public void setEnterFaceGraceSec(double enterFaceGraceSec)
         {
             this.enterFaceGraceSec = enterFaceGraceSec;
+        }
+
+        public boolean isEventIngestEnabled()
+        {
+            return eventIngestEnabled;
+        }
+
+        public void setEventIngestEnabled(boolean eventIngestEnabled)
+        {
+            this.eventIngestEnabled = eventIngestEnabled;
         }
 
         public int getStreamOpenTimeoutSec()
@@ -511,6 +550,66 @@ public class PresenceIngestProperties
         {
             this.go2rtcRtspBaseUrl = go2rtcRtspBaseUrl;
         }
+
+        public boolean isAutoRestartEnabled()
+        {
+            return autoRestartEnabled;
+        }
+
+        public void setAutoRestartEnabled(boolean autoRestartEnabled)
+        {
+            this.autoRestartEnabled = autoRestartEnabled;
+        }
+
+        public double getRestartBackoffSec()
+        {
+            return restartBackoffSec;
+        }
+
+        public void setRestartBackoffSec(double restartBackoffSec)
+        {
+            this.restartBackoffSec = restartBackoffSec;
+        }
+
+        public double getRestartBackoffMaxSec()
+        {
+            return restartBackoffMaxSec;
+        }
+
+        public void setRestartBackoffMaxSec(double restartBackoffMaxSec)
+        {
+            this.restartBackoffMaxSec = restartBackoffMaxSec;
+        }
+
+        public boolean isResumeOnBoot()
+        {
+            return resumeOnBoot;
+        }
+
+        public void setResumeOnBoot(boolean resumeOnBoot)
+        {
+            this.resumeOnBoot = resumeOnBoot;
+        }
+
+        public double getFrameReconnectIdleSec()
+        {
+            return frameReconnectIdleSec;
+        }
+
+        public void setFrameReconnectIdleSec(double frameReconnectIdleSec)
+        {
+            this.frameReconnectIdleSec = frameReconnectIdleSec;
+        }
+
+        public double getHeartbeatTimeoutSec()
+        {
+            return heartbeatTimeoutSec;
+        }
+
+        public void setHeartbeatTimeoutSec(double heartbeatTimeoutSec)
+        {
+            this.heartbeatTimeoutSec = heartbeatTimeoutSec;
+        }
     }
 
     public static class ClipCapture
@@ -523,10 +622,25 @@ public class PresenceIngestProperties
 
         private double trackLostSec = 2.0;
 
-        private double sceneMergeGapSec = 5.0;
+        private double sceneMergeGapSec = 10.0;
 
-        /** 本地 OpenCV MP4 仅作为兜底录像，默认由萤石回放提供最终片段。 */
+        /** 本地录像：ffmpeg -c copy 分段环形缓冲，事件时按预录/后录切片（保持源码流画质）。 */
         private boolean localRecordingEnabled = false;
+
+        /** ffmpeg 可执行文件；为空则使用 PATH 中的 ffmpeg */
+        private String ffmpegPath = "ffmpeg";
+
+        /** 环形缓冲分段时长（秒），越小时间边界越准 */
+        private double ringSegmentSec = 2.0;
+
+        /** 单段本地录像最长秒数，防止异常一直录 */
+        private double maxDurationSec = 300.0;
+
+        /** 场景片落盘后自动跑 YOLO 离线分析 */
+        private boolean autoAnalyzeYolo = true;
+
+        /** YOLO 分析成功后自动导入行为日志 */
+        private boolean autoImportBehaviorLogs = true;
 
         /** Ezviz cloud recording address format. MP4 is preferred for download and analysis. */
         private String ezvizRecordingFormat = "MP4";
@@ -601,6 +715,56 @@ public class PresenceIngestProperties
         public void setLocalRecordingEnabled(boolean localRecordingEnabled)
         {
             this.localRecordingEnabled = localRecordingEnabled;
+        }
+
+        public String getFfmpegPath()
+        {
+            return ffmpegPath;
+        }
+
+        public void setFfmpegPath(String ffmpegPath)
+        {
+            this.ffmpegPath = ffmpegPath;
+        }
+
+        public double getRingSegmentSec()
+        {
+            return ringSegmentSec;
+        }
+
+        public void setRingSegmentSec(double ringSegmentSec)
+        {
+            this.ringSegmentSec = ringSegmentSec;
+        }
+
+        public double getMaxDurationSec()
+        {
+            return maxDurationSec;
+        }
+
+        public void setMaxDurationSec(double maxDurationSec)
+        {
+            this.maxDurationSec = maxDurationSec;
+        }
+
+        public boolean isAutoAnalyzeYolo()
+        {
+            return autoAnalyzeYolo;
+        }
+
+        public void setAutoAnalyzeYolo(boolean autoAnalyzeYolo)
+        {
+            this.autoAnalyzeYolo = autoAnalyzeYolo;
+        }
+
+        public boolean isAutoImportBehaviorLogs()
+        {
+            return autoImportBehaviorLogs;
+        }
+
+        public void setAutoImportBehaviorLogs(boolean autoImportBehaviorLogs)
+        {
+            this.autoImportBehaviorLogs = autoImportBehaviorLogs;
         }
 
         public String getEzvizRecordingFormat()
@@ -678,11 +842,32 @@ public class PresenceIngestProperties
     {
         private boolean enabled = false;
 
-        private int timeoutSec = 60;
+        private int timeoutSec = 180;
 
         private boolean autoRun = false;
 
-        private String prompt = "请分析这段监控视频中的人物外观、行为、多人互动和潜在风险，返回JSON字段summary、appearance、behavior、riskLevel。";
+        private String prompt = "当前监控视角在实验室内部、朝门外拍摄。人物向外走（离开实验室）=出门，向里走（进入实验室）=进门。请分析这段监控视频，只返回JSON对象，字段：summary（用一两句话概括画面中有谁、是进门还是出门、在做什么）、personCount（画面中人数，整数）。不要返回其他字段。";
+
+        /** 直接传视频文件时的抽帧频率（传给模型的 fps 参数） */
+        private double videoFps = 2.0;
+
+        /** 兼容旧配置；智能抽帧下仅作模型侧参考 fps */
+        private double frameExtractFps = 1.0;
+
+        /** 本地抽帧最多张数 */
+        private int maxFrameCount = 10;
+
+        /** 无 YOLO 事件时，在视频中段该比例窗口内均匀抽帧（默认 0.6 = 中间 60%） */
+        private double middleWindowRatio = 0.6;
+
+        /** 有 YOLO 事件时，每个事件前后各扩多少秒抽帧 */
+        private double eventPaddingSec = 1.5;
+
+        /** 抽帧缩放宽度（保持比例） */
+        private int frameWidth = 960;
+
+        /** 小于该字节数时优先 base64 直传整段视频，否则抽帧；默认 512KB，避免大文件上传超时 */
+        private long maxBase64Bytes = 512L * 1024;
 
         private java.util.List<Model> models = new java.util.ArrayList<>();
 
@@ -726,6 +911,76 @@ public class PresenceIngestProperties
         public void setPrompt(String prompt)
         {
             this.prompt = prompt;
+        }
+
+        public double getVideoFps()
+        {
+            return videoFps;
+        }
+
+        public void setVideoFps(double videoFps)
+        {
+            this.videoFps = videoFps;
+        }
+
+        public double getFrameExtractFps()
+        {
+            return frameExtractFps;
+        }
+
+        public void setFrameExtractFps(double frameExtractFps)
+        {
+            this.frameExtractFps = frameExtractFps;
+        }
+
+        public int getMaxFrameCount()
+        {
+            return maxFrameCount;
+        }
+
+        public void setMaxFrameCount(int maxFrameCount)
+        {
+            this.maxFrameCount = maxFrameCount;
+        }
+
+        public double getMiddleWindowRatio()
+        {
+            return middleWindowRatio;
+        }
+
+        public void setMiddleWindowRatio(double middleWindowRatio)
+        {
+            this.middleWindowRatio = middleWindowRatio;
+        }
+
+        public double getEventPaddingSec()
+        {
+            return eventPaddingSec;
+        }
+
+        public void setEventPaddingSec(double eventPaddingSec)
+        {
+            this.eventPaddingSec = eventPaddingSec;
+        }
+
+        public int getFrameWidth()
+        {
+            return frameWidth;
+        }
+
+        public void setFrameWidth(int frameWidth)
+        {
+            this.frameWidth = frameWidth;
+        }
+
+        public long getMaxBase64Bytes()
+        {
+            return maxBase64Bytes;
+        }
+
+        public void setMaxBase64Bytes(long maxBase64Bytes)
+        {
+            this.maxBase64Bytes = maxBase64Bytes;
         }
 
         public java.util.List<Model> getModels()
@@ -1077,6 +1332,16 @@ public class PresenceIngestProperties
     public void setFaceMinDetScore(Double faceMinDetScore)
     {
         this.faceMinDetScore = faceMinDetScore;
+    }
+
+    public String getFaceEmbedMode()
+    {
+        return faceEmbedMode;
+    }
+
+    public void setFaceEmbedMode(String faceEmbedMode)
+    {
+        this.faceEmbedMode = faceEmbedMode;
     }
 
     public Double getFaceMatchThreshold()

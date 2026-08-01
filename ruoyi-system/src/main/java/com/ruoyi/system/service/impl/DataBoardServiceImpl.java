@@ -3,8 +3,12 @@ package com.ruoyi.system.service.impl;
 import java.sql.Date;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.domain.bo.DataBoardSessionFilterBo;
@@ -13,6 +17,7 @@ import com.ruoyi.system.domain.vo.DataBoardHourlyItemVo;
 import com.ruoyi.system.domain.vo.DataBoardCameraItemVo;
 import com.ruoyi.system.domain.vo.DataBoardOverviewVo;
 import com.ruoyi.system.domain.vo.DataBoardPersonItemVo;
+import com.ruoyi.system.domain.vo.DataBoardPersonSearchVo;
 import com.ruoyi.system.domain.vo.DataBoardRecentSessionVo;
 import com.ruoyi.system.domain.vo.DataBoardStrangerItemVo;
 import com.ruoyi.system.domain.vo.DataBoardSummaryVo;
@@ -31,6 +36,9 @@ public class DataBoardServiceImpl implements IDataBoardService
     private static final int DEFAULT_RECENT_LIMIT = 10;
 
     private static final int MAX_RECENT_LIMIT = 500;
+
+    @Value("${presence.ingest.faceMatchThreshold:0.35}")
+    private double faceMatchThreshold;
 
     @Autowired
     private DataBoardMapper dataBoardMapper;
@@ -61,8 +69,7 @@ public class DataBoardServiceImpl implements IDataBoardService
         List<DataBoardRecentSessionVo> recentSessions = dataBoardMapper.selectRecentSessions(sqlBegin, sqlEnd,
                 cameraId, limit, filter);
         List<DataBoardPersonItemVo> personItems = dataBoardMapper.selectPersonItems(sqlBegin, sqlEnd, cameraId, limit);
-        List<DataBoardStrangerItemVo> strangerItems = dataBoardMapper.selectStrangerItems(sqlBegin, sqlEnd, cameraId,
-                limit);
+        List<DataBoardStrangerItemVo> strangerItems = groupStrangersByFace(sqlBegin, sqlEnd, cameraId, limit);
 
         List<DataBoardAttendanceItemVo> attendanceItems = dataBoardMapper.selectAttendanceInfoList(sqlBegin, sqlEnd,
                 cameraId, limit, filter);
@@ -102,6 +109,12 @@ public class DataBoardServiceImpl implements IDataBoardService
         summary.setStrangerItems(strangerItems);
         summary.setAttendanceItems(attendanceItems);
         return summary;
+    }
+
+    @Override
+    public List<DataBoardPersonSearchVo> searchPersons(String keyword)
+    {
+        return dataBoardMapper.searchPersons(keyword);
     }
 
     private DataBoardSessionFilterBo normalizeSessionFilter(DataBoardSessionFilterBo sessionFilter)
@@ -186,6 +199,131 @@ public class DataBoardServiceImpl implements IDataBoardService
     {
         return sessionFilter != null && !StringUtils.isEmpty(sessionFilter.getBeginTime())
                 && !StringUtils.isEmpty(sessionFilter.getEndTime());
+    }
+
+    /**
+     * 查询陌生人列表并按人脸向量相似度去重分组
+     */
+    private List<DataBoardStrangerItemVo> groupStrangersByFace(Date sqlBegin, Date sqlEnd, Long cameraId, int limit)
+    {
+        List<DataBoardStrangerItemVo> rawItems = dataBoardMapper.selectStrangerItems(sqlBegin, sqlEnd, cameraId, limit);
+        if (rawItems == null || rawItems.isEmpty())
+        {
+            return rawItems;
+        }
+
+        Map<String, float[]> embedMap = loadStrangerEmbeddings(sqlBegin, sqlEnd);
+        if (embedMap.isEmpty())
+        {
+            for (DataBoardStrangerItemVo item : rawItems)
+            {
+                item.setSessionCount(1);
+                item.getRelatedTrackKeys().add(item.getTrackKey());
+            }
+            return rawItems;
+        }
+
+        for (DataBoardStrangerItemVo item : rawItems)
+        {
+            float[] emb = embedMap.get(item.getTrackKey());
+            item.setFaceEmbedding(emb);
+        }
+
+        List<DataBoardStrangerItemVo> grouped = new ArrayList<>();
+        boolean[] merged = new boolean[rawItems.size()];
+
+        for (int i = 0; i < rawItems.size(); i++)
+        {
+            if (merged[i])
+            {
+                continue;
+            }
+            DataBoardStrangerItemVo rep = rawItems.get(i);
+            rep.setSessionCount(1);
+            rep.getRelatedTrackKeys().add(rep.getTrackKey());
+
+            if (rep.getFaceEmbedding() != null)
+            {
+                for (int j = i + 1; j < rawItems.size(); j++)
+                {
+                    if (merged[j])
+                    {
+                        continue;
+                    }
+                    DataBoardStrangerItemVo other = rawItems.get(j);
+                    if (other.getFaceEmbedding() != null
+                            && cosineSimilarity(rep.getFaceEmbedding(), other.getFaceEmbedding()) > faceMatchThreshold)
+                    {
+                        rep.setSessionCount(rep.getSessionCount() + 1);
+                        rep.getRelatedTrackKeys().add(other.getTrackKey());
+                        merged[j] = true;
+                    }
+                }
+            }
+            grouped.add(rep);
+        }
+        return grouped;
+    }
+
+    private Map<String, float[]> loadStrangerEmbeddings(Date sqlBegin, Date sqlEnd)
+    {
+        Map<String, float[]> map = new HashMap<>();
+        List<Map<String, Object>> rows = dataBoardMapper.selectStrangerFaceEmbeddings(sqlBegin, sqlEnd);
+        if (rows == null)
+        {
+            return map;
+        }
+        for (Map<String, Object> row : rows)
+        {
+            String trackKey = (String) row.get("track_key");
+            String embText = (String) row.get("embedding_text");
+            if (trackKey != null && embText != null && !map.containsKey(trackKey))
+            {
+                float[] vec = parseVector(embText);
+                if (vec != null)
+                {
+                    map.put(trackKey, vec);
+                }
+            }
+        }
+        return map;
+    }
+
+    private static float[] parseVector(String text)
+    {
+        if (text == null || text.length() < 3)
+        {
+            return null;
+        }
+        String inner = text;
+        if (inner.startsWith("["))
+        {
+            inner = inner.substring(1, inner.length() - 1);
+        }
+        String[] parts = inner.split(",");
+        float[] vec = new float[parts.length];
+        for (int i = 0; i < parts.length; i++)
+        {
+            vec[i] = Float.parseFloat(parts[i].trim());
+        }
+        return vec;
+    }
+
+    private static double cosineSimilarity(float[] a, float[] b)
+    {
+        if (a.length != b.length)
+        {
+            return 0.0;
+        }
+        double dot = 0, normA = 0, normB = 0;
+        for (int i = 0; i < a.length; i++)
+        {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        double denom = Math.sqrt(normA) * Math.sqrt(normB);
+        return denom == 0 ? 0.0 : dot / denom;
     }
 
     private long nullSafe(Long value)

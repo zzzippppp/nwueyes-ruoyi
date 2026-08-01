@@ -21,6 +21,22 @@ def sharpness(bgr) -> float:
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
+def normalize_bbox(box, frame_w: int, frame_h: int, source: str = "body") -> Optional[dict]:
+    """将像素框转为 0~1 归一化坐标，供前端按显示尺寸叠框。"""
+    if box is None or frame_w <= 0 or frame_h <= 0:
+        return None
+    x1, y1, x2, y2 = _clamp_box(box, frame_w, frame_h)
+    return {
+        "x1": round(x1 / float(frame_w), 4),
+        "y1": round(y1 / float(frame_h), 4),
+        "x2": round(x2 / float(frame_w), 4),
+        "y2": round(y2 / float(frame_h), 4),
+        "frameWidth": int(frame_w),
+        "frameHeight": int(frame_h),
+        "source": source,
+    }
+
+
 def _clamp_box(box, frame_w: int, frame_h: int) -> tuple[int, int, int, int]:
     x1, y1, x2, y2 = [int(v) for v in box]
     x1 = max(0, min(frame_w - 1, x1))
@@ -188,6 +204,8 @@ class LiveEventCapture:
     best_body_img: Optional[np.ndarray] = None
     best_face_frame_img: Optional[np.ndarray] = None
     best_body_frame_img: Optional[np.ndarray] = None
+    best_face_person_box: Optional[tuple] = None
+    best_body_person_box: Optional[tuple] = None
 
     def __post_init__(self):
         if self.deadline <= 0:
@@ -215,6 +233,7 @@ class LiveEventCapture:
             self.best_face_score = fs
             self.best_face_img = face.copy()
             self.best_face_frame_img = frame.copy()
+            self.best_face_person_box = _clamp_box(box, w, h)
             if self.face_first_seen_at is None:
                 self.face_first_seen_at = time.time()
             updated = True
@@ -222,16 +241,26 @@ class LiveEventCapture:
             self.best_body_score = bs
             self.best_body_img = body.copy()
             self.best_body_frame_img = frame.copy()
+            self.best_body_person_box = _clamp_box(box, w, h)
             updated = True
         return updated
 
     def finalize_snapshot_frame(self) -> Optional[np.ndarray]:
-        """返回用于向量择优的那一帧整幅监控画面。"""
-        if self.event_type == "enter":
-            if self.best_face_frame_img is not None:
-                return self.best_face_frame_img
-            return self.best_body_frame_img
+        """返回用于日志的整幅监控画面：有脸用脸帧，否则用最清晰体态帧。"""
+        if self.best_face_frame_img is not None:
+            return self.best_face_frame_img
         return self.best_body_frame_img
+
+    def finalize_snapshot_bbox(self) -> Optional[dict]:
+        frame = self.finalize_snapshot_frame()
+        if frame is None:
+            return None
+        h, w = frame.shape[:2]
+        if self.best_face_frame_img is not None and self.best_face_person_box is not None:
+            return normalize_bbox(self.best_face_person_box, w, h, "face_frame")
+        if self.best_body_frame_img is not None and self.best_body_person_box is not None:
+            return normalize_bbox(self.best_body_person_box, w, h, "body_frame")
+        return None
 
     def expired(self, now: float) -> bool:
         if self.event_type == "enter":
@@ -284,6 +313,8 @@ class VideoEventCapture:
     best_body_img: Optional[np.ndarray] = None
     best_face_frame_img: Optional[np.ndarray] = None
     best_body_frame_img: Optional[np.ndarray] = None
+    best_face_person_box: Optional[tuple] = None
+    best_body_person_box: Optional[tuple] = None
 
     def try_sample(self, frame, box, conf: float, frame_area: int) -> bool:
         h, w = frame.shape[:2]
@@ -302,6 +333,7 @@ class VideoEventCapture:
             self.best_face_score = fs
             self.best_face_img = face.copy()
             self.best_face_frame_img = frame.copy()
+            self.best_face_person_box = _clamp_box(box, w, h)
             if self.face_first_seen_at is None:
                 self.face_first_seen_at = self.video_started_at
             updated = True
@@ -309,15 +341,26 @@ class VideoEventCapture:
             self.best_body_score = bs
             self.best_body_img = body.copy()
             self.best_body_frame_img = frame.copy()
+            self.best_body_person_box = _clamp_box(box, w, h)
             updated = True
         return updated
 
     def finalize_snapshot_frame(self) -> Optional[np.ndarray]:
-        if self.event_type == "enter":
-            if self.best_face_frame_img is not None:
-                return self.best_face_frame_img
-            return self.best_body_frame_img
+        """有脸用脸帧，否则用最清晰体态帧（进门无人脸也要有监控画面）。"""
+        if self.best_face_frame_img is not None:
+            return self.best_face_frame_img
         return self.best_body_frame_img
+
+    def finalize_snapshot_bbox(self) -> Optional[dict]:
+        frame = self.finalize_snapshot_frame()
+        if frame is None:
+            return None
+        h, w = frame.shape[:2]
+        if self.best_face_frame_img is not None and self.best_face_person_box is not None:
+            return normalize_bbox(self.best_face_person_box, w, h, "face_frame")
+        if self.best_body_frame_img is not None and self.best_body_person_box is not None:
+            return normalize_bbox(self.best_body_person_box, w, h, "body_frame")
+        return None
 
     def expired(self, video_sec: float) -> bool:
         if self.event_type == "enter":
@@ -415,6 +458,9 @@ def finalize_video_event_capture(
     event["snapshotUrl"] = snapshot_url
     event["qualityFlag"] = quality
     event["captureSamples"] = capture.samples
+    snapshot_bbox = capture.finalize_snapshot_bbox()
+    if snapshot_bbox:
+        event["snapshotBbox"] = snapshot_bbox
     print(
         f"[capture-done] {capture.track_key} {capture.event_type} samples={capture.samples} "
         f"face={'yes' if face_url else 'no'} body={'yes' if body_url else 'no'} quality={quality}",

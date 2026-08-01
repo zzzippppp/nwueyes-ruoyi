@@ -1,7 +1,9 @@
 package com.ruoyi.system.service;
 
 import java.time.LocalDate;
+import java.util.List;
 import com.ruoyi.system.domain.bo.DataBoardSessionFilterBo;
+import com.ruoyi.system.domain.vo.DataBoardPersonSearchVo;
 import com.ruoyi.system.domain.vo.DataBoardSummaryVo;
 
 /**
@@ -14,4 +16,9 @@ public interface IDataBoardService
      */
     DataBoardSummaryVo getSummary(LocalDate statDate, LocalDate beginDate, LocalDate endDate, Long cameraId,
             int recentLimit, DataBoardSessionFilterBo sessionFilter);
+
+    /**
+     * 搜索人员（合并对话框用）
+     */
+    List<DataBoardPersonSearchVo> searchPersons(String keyword);
 }

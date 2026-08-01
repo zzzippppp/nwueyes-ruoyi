@@ -1,7 +1,10 @@
 package com.ruoyi.system.service;
 
+import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.system.domain.vo.AnalyzeEmbedResultVo;
 import com.ruoyi.system.domain.vo.AnalyzeEventMatchResultVo;
+import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
+import com.ruoyi.system.domain.vo.FaceCompareResultVo;
 
 public interface IPresenceEmbedService
 {
@@ -13,10 +16,15 @@ public interface IPresenceEmbedService
     /**
      * 对单张图片 URL 抽取 512 维向量（kind=face|body）。
      */
-    com.ruoyi.system.domain.vo.EmbeddingVectorVo embedImage(String kind, String imageUrl);
+    EmbeddingVectorVo embedImage(String kind, String imageUrl);
 
     /**
      * 视频分析过线事件与人脸库/体态库（及同批进门 session）匹配预览。
      */
     AnalyzeEventMatchResultVo matchAnalyzeEvents(String taskId);
+
+    /**
+     * 两张图按项目同款人脸向量流程对比（gallery=人脸库，camera=摄像头抓拍）。
+     */
+    FaceCompareResultVo compareFaces(MultipartFile galleryFile, MultipartFile cameraFile) throws Exception;
 }

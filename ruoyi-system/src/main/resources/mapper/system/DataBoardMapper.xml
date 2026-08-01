@@ -270,24 +270,45 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SELECT
             x.track_key AS trackKey,
             COALESCE(x.display_name, '未知访客') AS displayName,
-            fp.image_url AS face_image_url,
-            x.person_id AS mergedPersonId
+            COALESCE(fp.image_url, x.session_face_url, '') AS faceImageUrl,
+            x.person_id AS mergedPersonId,
+            COALESCE(c.install_location, c.device_name, '—') AS locationName,
+            x.arrival_at AS arrivalAt,
+            COALESCE(x.person_type, 'stranger') AS personType,
+            COALESCE(x.employee_no, '') AS employeeNo,
+            COALESCE(x.gender, '2') AS gender,
+            COALESCE(x.phone, '') AS phone,
+            COALESCE(x.note, '') AS note,
+            COALESCE(enter_log.snapshot_url, '') AS snapshotUrl,
+            enter_log.snapshot_bbox AS snapshotBbox,
+            COALESCE(clip.video_url, '') AS clipVideoUrl
         FROM (
             SELECT DISTINCT ON (ps.track_key)
+                ps.id AS session_id,
                 ps.track_key,
+                ps.camera_id,
                 ps.person_id,
                 p.display_name,
-                ps.arrival_at
+                p.person_type::text AS person_type,
+                p.employee_no,
+                p.gender,
+                p.phone,
+                p.note,
+                ps.arrival_at,
+                ps.face_image_url AS session_face_url
             FROM presence_sessions ps
             LEFT JOIN persons p ON p.id = ps.person_id
             WHERE ps.track_key IS NOT NULL
               AND ps.track_key &lt;&gt; ''
+              AND ps.arrival_at &gt;= #{beginDate}::date
+              AND ps.arrival_at &lt; (#{endDate}::date + INTERVAL '1 day')
               <if test="cameraId != null">
                 AND ps.camera_id = #{cameraId}
               </if>
               AND (ps.person_id IS NULL OR p.person_type = 'stranger')
             ORDER BY ps.track_key, ps.arrival_at DESC
         ) x
+        LEFT JOIN camera c ON c.id = x.camera_id
         LEFT JOIN LATERAL (
             SELECT image_url
             FROM face_profiles
@@ -295,7 +316,72 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             ORDER BY created_at DESC
             LIMIT 1
         ) fp ON x.person_id IS NOT NULL
+        LEFT JOIN LATERAL (
+            SELECT bl.snapshot_url, bl.snapshot_bbox
+            FROM behavior_logs bl
+            WHERE bl.event_type = 'enter'
+              AND bl.camera_id = x.camera_id
+              AND (bl.session_id = x.session_id OR bl.track_key = x.track_key)
+              AND bl.snapshot_url IS NOT NULL
+              AND TRIM(bl.snapshot_url) &lt;&gt; ''
+            ORDER BY
+                CASE WHEN bl.session_id = x.session_id THEN 0 ELSE 1 END,
+                ABS(EXTRACT(EPOCH FROM (bl.event_time - x.arrival_at::timestamp)))
+            LIMIT 1
+        ) enter_log ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT pvc.video_url
+            FROM presence_video_clips pvc
+            WHERE pvc.camera_id = x.camera_id
+              AND pvc.start_time &lt;= x.arrival_at + INTERVAL '5 seconds'
+              AND pvc.end_time &gt;= x.arrival_at - INTERVAL '5 seconds'
+            ORDER BY ABS(EXTRACT(EPOCH FROM (pvc.start_time - x.arrival_at)))
+            LIMIT 1
+        ) clip ON TRUE
         ORDER BY x.arrival_at DESC
+    </select>
+
+    <!-- 查询陌生人的人脸向量（用于 Java 层去重分组） -->
+    <select id="selectStrangerFaceEmbeddings" resultType="map">
+        SELECT
+            ps.track_key AS track_key,
+            fp.embedding::text AS embedding_text
+        FROM presence_sessions ps
+        INNER JOIN face_profiles fp ON fp.person_id = ps.person_id
+        WHERE ps.track_key IS NOT NULL
+          AND ps.track_key &lt;&gt; ''
+          AND ps.person_id IS NOT NULL
+          AND ps.arrival_at &gt;= #{beginDate}::date
+          AND ps.arrival_at &lt; (#{endDate}::date + INTERVAL '1 day')
+          AND EXISTS (
+              SELECT 1 FROM persons p
+              WHERE p.id = ps.person_id AND p.person_type = 'stranger'
+          )
+        ORDER BY fp.created_at DESC
+    </select>
+
+    <!-- 人员搜索（合并对话框用） -->
+    <select id="searchPersons" resultType="com.ruoyi.system.domain.vo.DataBoardPersonSearchVo">
+        SELECT
+            p.id AS personId,
+            p.display_name AS displayName,
+            p.employee_no AS employeeNo,
+            p.person_type::text AS personType,
+            COALESCE(fp.image_url, p.face_image_url, '') AS faceImageUrl
+        FROM persons p
+        LEFT JOIN LATERAL (
+            SELECT image_url FROM face_profiles
+            WHERE person_id = p.id ORDER BY created_at DESC LIMIT 1
+        ) fp ON TRUE
+        WHERE p.person_type IN ('student', 'staff')
+          <if test="keyword != null and keyword != ''">
+          AND (
+              p.display_name ILIKE '%' || #{keyword} || '%'
+              OR p.employee_no ILIKE '%' || #{keyword} || '%'
+          )
+          </if>
+        ORDER BY p.display_name
+        LIMIT 200
     </select>
 
     <update id="updatePerson">
@@ -304,6 +390,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             person_type = CAST(#{personType} AS person_type),
             employee_no = #{employeeNo},
             note = #{note},
+            phone = COALESCE(#{phone}, phone, ''),
+            gender = COALESCE(#{gender}, gender, '2'),
             updated_at = NOW()
         WHERE id = #{personId}
     </update>
@@ -417,15 +505,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <select id="selectRegisteredPersonCount" resultType="java.lang.Long">
         SELECT COUNT(*)::bigint
         FROM persons
-        WHERE person_type IN ('student', 'staff')
     </select>
 
     <select id="selectTodayKnownAttendanceCount" resultType="java.lang.Long">
         SELECT COUNT(DISTINCT ps.person_id)::bigint
         FROM presence_sessions ps
         INNER JOIN persons p ON p.id = ps.person_id
-        WHERE p.person_type IN ('student', 'staff')
-          AND ps.arrival_at &gt;= #{today}::date
+        WHERE ps.arrival_at &gt;= #{today}::date
           AND ps.arrival_at &lt; (#{today}::date + INTERVAL '1 day')
         <if test="cameraId != null">
             AND ps.camera_id = #{cameraId}
@@ -440,18 +526,48 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                 p.display_name AS displayName,
                 COALESCE(p.employee_no, '') AS employeeNo,
                 p.person_type::text AS personKind,
-                ll.device_name AS locationName,
                 CASE
+                    WHEN pda.attendance_status::text = 'absent' THEN COALESCE(pda.camera_id, ll.camera_id)
+                    ELSE ll.camera_id
+                END AS cameraId,
+                CASE
+                    WHEN pda.attendance_status::text = 'absent' THEN COALESCE(c_manual.device_name, ll.device_name)
+                    ELSE ll.device_name
+                END AS locationName,
+                CASE
+                    WHEN pda.attendance_status::text = 'absent' THEN 'absent'
                     WHEN COALESCE(sir.overlapped, FALSE) = FALSE THEN 'absent'
                     WHEN COALESCE(sir.present_at_end, FALSE) = TRUE THEN 'present'
                     ELSE 'left'
                 END AS attendanceStatus,
-                COALESCE(pc.passage_count, 0) AS passageCount,
-                sir.first_arrival AS arrivalAt,
-                CASE WHEN COALESCE(sir.present_at_end, FALSE) THEN NULL ELSE sir.last_departure END AS departureAt,
-                COALESCE(sir.dwell_seconds, 0) AS dwellSeconds,
-                COALESCE(sir.overlapped, FALSE) AS overlapped
+                CASE
+                    WHEN pda.attendance_status::text = 'absent' THEN 0
+                    ELSE COALESCE(pc.passage_count, 0)
+                END AS passageCount,
+                CASE
+                    WHEN pda.attendance_status::text = 'absent' THEN NULL
+                    ELSE sir.first_arrival
+                END AS arrivalAt,
+                CASE
+                    WHEN pda.attendance_status::text = 'absent' THEN NULL
+                    WHEN COALESCE(sir.present_at_end, FALSE) THEN NULL
+                    WHEN sir.last_departure IS NULL THEN NULL
+                    WHEN sir.first_arrival IS NOT NULL AND sir.last_departure &lt; sir.first_arrival THEN NULL
+                    ELSE sir.last_departure
+                END AS departureAt,
+                CASE
+                    WHEN pda.attendance_status::text = 'absent' THEN 0
+                    ELSE COALESCE(sir.dwell_seconds, 0)
+                END AS dwellSeconds,
+                CASE
+                    WHEN pda.attendance_status::text = 'absent' THEN FALSE
+                    ELSE COALESCE(sir.overlapped, FALSE)
+                END AS overlapped
             FROM persons p
+            LEFT JOIN person_daily_attendance pda
+                ON pda.person_id = p.id
+               AND pda.stat_date = #{beginDate}::date
+            LEFT JOIN camera c_manual ON c_manual.id = pda.camera_id
             LEFT JOIN (
                 SELECT
                     ps.person_id,
@@ -469,15 +585,27 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                     ) AS first_arrival,
                     MAX(ps.departure_at) FILTER (
                         WHERE ps.status = 'closed'
+                          AND ps.departure_at IS NOT NULL
+                          AND ps.departure_at &gt;= ps.arrival_at
                           AND ps.arrival_at &lt; <include refid="rangeEndTs"/>
-                          AND COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>
+                          AND ps.departure_at &gt; <include refid="rangeStartTs"/>
                     ) AS last_departure,
                     COALESCE(SUM(
                         CASE
                             WHEN ps.arrival_at &lt; <include refid="rangeEndTs"/>
                              AND (ps.status = 'open' OR COALESCE(ps.departure_at, NOW()) &gt; <include refid="rangeStartTs"/>)
                              THEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (
-                                LEAST(COALESCE(ps.departure_at, NOW()), <include refid="rangeEndTs"/>, NOW())
+                                LEAST(
+                                    CASE
+                                        WHEN ps.status = 'closed'
+                                         AND ps.departure_at IS NOT NULL
+                                         AND ps.departure_at &gt;= ps.arrival_at
+                                        THEN ps.departure_at
+                                        ELSE NOW()
+                                    END,
+                                    <include refid="rangeEndTs"/>,
+                                    NOW()
+                                )
                                 - GREATEST(ps.arrival_at, <include refid="rangeStartTs"/>)
                              ))))::bigint
                             ELSE 0
@@ -493,6 +621,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             LEFT JOIN (
                 SELECT DISTINCT ON (ps.person_id)
                     ps.person_id,
+                    ps.camera_id,
                     c.device_name
                 FROM presence_sessions ps
                 INNER JOIN camera c ON c.id = ps.camera_id
@@ -535,6 +664,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                                   AND ps2.camera_id = #{cameraId}
                                 </if>
                             )
+                            OR pda.person_id IS NOT NULL
                         )
                     </otherwise>
                 </choose>

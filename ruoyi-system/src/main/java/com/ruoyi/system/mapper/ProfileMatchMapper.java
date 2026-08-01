@@ -13,7 +13,8 @@ public interface ProfileMatchMapper
       @Param("maxDistance") float maxDistance);
 
   BodySessionMatchVo searchTopOpenSessionByBody(@Param("cameraId") Long cameraId,
-      @Param("embedding") String embeddingLiteral, @Param("maxDistance") float maxDistance);
+      @Param("embedding") String embeddingLiteral, @Param("maxDistance") float maxDistance,
+      @Param("eventTime") java.util.Date eventTime);
 
   int insertFaceProfile(@Param("personId") Long personId, @Param("embedding") String embeddingLiteral,
       @Param("imageUrl") String imageUrl);

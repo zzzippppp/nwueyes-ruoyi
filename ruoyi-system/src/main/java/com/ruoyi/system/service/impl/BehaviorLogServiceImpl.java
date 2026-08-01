@@ -46,6 +46,8 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.springframework.context.annotation.Lazy;
+
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -60,11 +62,17 @@ import com.ruoyi.system.domain.bo.BehaviorLogImportFromVideoBo;
 
 import com.ruoyi.system.domain.bo.PresenceEventIngestBo;
 
+import com.ruoyi.system.domain.vo.AnalyzeEmbedResultVo;
+
 import com.ruoyi.system.domain.vo.BehaviorLogImportResultVo;
 
 import com.ruoyi.system.domain.vo.BehaviorLogItemVo;
 
 import com.ruoyi.system.domain.vo.AiAnalysisResultVo;
+
+import com.ruoyi.system.domain.vo.CaptureTrackEmbedVo;
+
+import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
 
 import com.ruoyi.system.domain.vo.PresenceVideoClipVo;
 
@@ -78,11 +86,15 @@ import com.ruoyi.system.mapper.VideoAnalysisMapper;
 
 import com.ruoyi.system.service.IBehaviorLogService;
 
+import com.ruoyi.system.service.IPresenceEmbedService;
+
 import com.ruoyi.system.service.IPresenceReplayService;
 
 import com.ruoyi.system.service.IPresenceTrackService;
 
 import com.ruoyi.system.support.StatDateRange;
+
+import com.ruoyi.system.support.VideoEventImportFilter;
 
 import com.ruoyi.system.storage.PresenceStoragePaths;
 
@@ -124,6 +136,8 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
     @Autowired
 
+    @Lazy
+
     private IPresenceReplayService presenceReplayService;
 
 
@@ -146,10 +160,17 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
 
 
+    @Autowired
+
+    private IPresenceEmbedService presenceEmbedService;
+
+
+
     @Override
 
     public List<BehaviorLogItemVo> listBehaviorLogs(LocalDate statDate, LocalDate beginDate, LocalDate endDate,
-            Long cameraId, String eventType, String beginTime, String endTime, Integer limit)
+            Long cameraId, String eventType, String displayName, String personType, Long personId,
+            String beginTime, String endTime, Integer limit)
     {
         StatDateRange range = StatDateRange.resolve(statDate, beginDate, endDate);
         String[] normalizedTimes = normalizeTimeRange(beginTime, endTime);
@@ -158,7 +179,8 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
             range = StatDateRange.ofSingleDay(range.getBeginDate());
         }
         List<BehaviorLogItemVo> rows = behaviorLogMapper.selectBehaviorLogList(range.getBeginDate(), range.getEndDate(),
-                cameraId, eventType, normalizedTimes[0], normalizedTimes[1], limit == null ? 500 : limit);
+                cameraId, eventType, displayName, personType, personId,
+                normalizedTimes[0], normalizedTimes[1], limit == null ? 500 : limit);
 
         enrichVideoAnalysis(rows);
 
@@ -383,19 +405,25 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
         List<AiAnalysisResultVo> scene = row.getSceneAnalysisResults();
 
-        if ((personal == null || personal.isEmpty()) && (scene == null || scene.isEmpty()))
+        boolean hasPersonal = personal != null && !personal.isEmpty();
+
+        boolean hasScene = scene != null && !scene.isEmpty();
+
+        if (!hasPersonal && !hasScene)
 
         {
+
+            // 导入时任务级 AI 已写入 behavior_analysis，应视为已完成，避免一直显示「分析中」
+
+            if (!StringUtils.isEmpty(row.getBehaviorAnalysis()))
+
+            {
+
+                return "success";
+
+            }
 
             return StringUtils.nvl(row.getAnalysisStatus(), row.getClipId() == null ? "none" : "pending");
-
-        }
-
-        if (hasStatus(personal, "pending") || hasStatus(scene, "pending"))
-
-        {
-
-            return "pending";
 
         }
 
@@ -415,11 +443,37 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
         }
 
+        if (hasStatus(personal, "pending") || hasStatus(scene, "pending"))
+
+        {
+
+            // 正式分析结果尚未落库，但导入摘要已有 → 仍按完成展示
+
+            if (!StringUtils.isEmpty(row.getBehaviorAnalysis()))
+
+            {
+
+                return "success";
+
+            }
+
+            return "pending";
+
+        }
+
         if (hasStatus(personal, "skipped") || hasStatus(scene, "skipped"))
 
         {
 
             return "skipped";
+
+        }
+
+        if (!StringUtils.isEmpty(row.getBehaviorAnalysis()))
+
+        {
+
+            return "success";
 
         }
 
@@ -477,7 +531,7 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
             return;
         }
         String eventType = StringUtils.nvl(bo.getEventType(), "").toLowerCase();
-        if (!"enter".equals(eventType) && !"exit".equals(eventType))
+        if (!"enter".equals(eventType) && !"exit".equals(eventType) && !"pass".equals(eventType))
         {
             return;
         }
@@ -503,6 +557,7 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
         row.setFaceImageUrl(faceImageUrl);
         row.setBodyImageUrl(bodyImageUrl);
         row.setSnapshotUrl(snapshotUrl);
+        row.setSnapshotBbox(readSnapshotBboxJson(bo.getSnapshotBbox()));
         row.setCameraId(bo.getCameraId());
         row.setPersonId(processed.getPersonId());
         row.setTrackKey(trackKey);
@@ -516,6 +571,41 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
                     processed.getSessionId(), processed.getFaceMatchScore(),
                     processed.getBodyMatchScore(), qualityFlag);
             promoteSnapshot(row, eventTime.toInstant().atZone(ZoneId.of("Asia/Shanghai")).toLocalDate());
+            // 录像常先于追脸结束入库：事件落库后再反向挂上场景视频
+            bindExistingClipToBehaviorLog(row.getId(), bo.getCameraId(), trackKey, eventTime);
+        }
+    }
+
+    /**
+     * 行为日志入库后，按摄像头 + 时间窗回挂已存在的场景录像（兼容历史个人会话片段）。
+     */
+    private void bindExistingClipToBehaviorLog(Long logId, Long cameraId, String trackKey, Date eventTime)
+    {
+        if (logId == null || cameraId == null || eventTime == null)
+        {
+            return;
+        }
+        try
+        {
+            PresenceVideoClipVo scene = videoAnalysisMapper.selectMatchingSceneClip(cameraId, eventTime);
+            if (scene != null)
+            {
+                behaviorLogMapper.updateBehaviorLogVideoBind(logId, scene.getSceneGroupId(), scene.getId(), "pending");
+                return;
+            }
+            if (!StringUtils.isEmpty(trackKey))
+            {
+                PresenceVideoClipVo person = videoAnalysisMapper.selectMatchingPersonClip(cameraId, trackKey, eventTime);
+                if (person != null)
+                {
+                    behaviorLogMapper.updateBehaviorLogVideoBind(logId, person.getSceneGroupId(), person.getId(),
+                            "pending");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.warn("bind clip to behavior log failed logId={}: {}", logId, ex.getMessage());
         }
     }
 
@@ -678,6 +768,24 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
 
 
+        // 导入前尽量同步拿到任务级 AI（自动流水线已跑过则直接复用）
+        try
+        {
+            presenceReplayService.ensureAiAnalysisForTask(bo.getTaskId());
+            PresenceReplayTaskVo refreshed = presenceReplayService.getTask(bo.getTaskId());
+            if (refreshed != null && !StringUtils.isEmpty(refreshed.getResultJson()))
+            {
+                root = objectMapper.readTree(refreshed.getResultJson());
+            }
+        }
+        catch (Exception ex)
+        {
+            log.warn("导入前 AI 分析不可用 taskId={}: {}", bo.getTaskId(), ex.getMessage());
+        }
+
+        String aiSummary = VideoEventImportFilter.readAiSummary(root);
+        Integer aiPersonCount = VideoEventImportFilter.readAiPersonCount(root);
+
         String sourceVideo = root.path("sourceVideo").asText("");
 
         JsonNode eventsNode = root.path("events");
@@ -685,6 +793,15 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
         if (!eventsNode.isArray() || eventsNode.isEmpty())
 
         {
+
+            if (bo.isAllowEmptyEvents())
+            {
+                BehaviorLogImportResultVo empty = new BehaviorLogImportResultVo();
+                empty.setInsertedCount(0);
+                empty.setSkippedCount(0);
+                empty.setMessage("分析结果中没有过线事件，已跳过导入");
+                return empty;
+            }
 
             throw new IllegalStateException("分析结果中没有过线事件");
 
@@ -702,9 +819,54 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
         }
 
-        LocalDateTime videoBaseTime = resolveVideoBaseTime(sourceVideo, task.getStartedAt());
+        LocalDateTime videoBaseTime;
+        if (bo.getVideoBaseTime() != null)
+        {
+            videoBaseTime = LocalDateTime.ofInstant(bo.getVideoBaseTime().toInstant(), ZoneId.systemDefault());
+        }
+        else
+        {
+            videoBaseTime = resolveVideoBaseTime(sourceVideo, task.getStartedAt());
+        }
 
+        List<JsonNode> rawEvents = new ArrayList<>();
+        for (Iterator<JsonNode> it = eventsNode.elements(); it.hasNext();)
+        {
+            rawEvents.add(it.next());
+        }
 
+        Map<Integer, List<Double>> faceEmb = new HashMap<>();
+        try
+        {
+            AnalyzeEmbedResultVo embedResult = presenceEmbedService.embedAnalyzeCaptures(bo.getTaskId());
+            if (embedResult != null && embedResult.getTracks() != null)
+            {
+                for (CaptureTrackEmbedVo row : embedResult.getTracks())
+                {
+                    if (row == null || row.getTrackId() == null)
+                    {
+                        continue;
+                    }
+                    EmbeddingVectorVo fe = row.getFaceEmbedding();
+                    if (fe != null && Boolean.TRUE.equals(fe.getOk()) && fe.getEmbedding() != null)
+                    {
+                        faceEmb.put(row.getTrackId(), fe.getEmbedding());
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log.warn("导入前向量抽取失败，将仅按 trackId 合并 taskId={}: {}", bo.getTaskId(), ex.getMessage());
+        }
+
+        double faceTh = ingestProperties.getFaceMatchThreshold() == null ? 0.35
+                : ingestProperties.getFaceMatchThreshold();
+        VideoEventImportFilter.FilterResult filtered = VideoEventImportFilter.filter(
+                rawEvents, faceEmb, faceTh, aiPersonCount);
+        log.info("视频导入事件过滤 taskId={} raw={} kept={} droppedPass={} personGroups={} aiPersonCount={}",
+                bo.getTaskId(), filtered.getRawCount(), filtered.getEvents().size(),
+                filtered.getDroppedPassCount(), filtered.getPersonGroupCount(), aiPersonCount);
 
         int inserted = 0;
 
@@ -714,15 +876,19 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
         int duplicateEnterSkipped = 0;
 
-        for (Iterator<JsonNode> it = eventsNode.elements(); it.hasNext();)
+        for (JsonNode event : filtered.getEvents())
 
         {
 
-            JsonNode event = it.next();
+            if (event == null || event.isNull())
+            {
+                skipped++;
+                continue;
+            }
 
             String eventType = event.path("eventType").asText("");
 
-            if (!"enter".equals(eventType) && !"exit".equals(eventType))
+            if (!"enter".equals(eventType) && !"exit".equals(eventType) && !"pass".equals(eventType))
 
             {
 
@@ -734,7 +900,13 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
             int trackId = event.path("trackId").asInt(0);
 
-            String trackKey = TRACK_PREFIX + trackId;
+            // 优先用分析脚本写出的全局唯一 trackKey（含 taskId），避免跨片段 ByteTrack id 从 1 重号
+            // 撞成同一个 yolo_1，进而被 selectOpenByTrack 误判为同一人
+            String trackKey = event.path("trackKey").asText("");
+            if (StringUtils.isEmpty(trackKey))
+            {
+                trackKey = bo.getTaskId() + "_" + TRACK_PREFIX + trackId;
+            }
 
             double timeSec = event.path("timeSec").asDouble(0.0);
 
@@ -783,6 +955,8 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
                     {
 
                         duplicateEnterSkipped++;
+                        // 重复进门抑制：证据仍入库，但绝不复用已有 open session 的身份（否则多人会被标成 YOLO_1）
+                        processed = null;
 
                     }
 
@@ -799,11 +973,13 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
                 }
 
                 BehaviorLogItemVo row = buildVideoImportRow(eventType, eventDate, event, urls, qualityFlag,
-                        cameraId, trackKey, processed);
+                        cameraId, trackKey, processed, aiSummary, aiPersonCount);
 
                 behaviorLogMapper.insertBehaviorLog(row);
 
                 promoteSnapshot(row, eventTime.toLocalDate());
+
+                bindImportedLogToClip(row.getId(), bo, aiSummary);
 
                 if (row.getId() != null && processed != null)
 
@@ -823,12 +999,25 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
             }
 
+            if ("pass".equals(eventType))
+            {
+                // 路过：只写行为日志与证据图，不走进/出门 session 配对
+                BehaviorLogItemVo row = buildVideoImportRow(eventType, eventDate, event, urls, qualityFlag,
+                        cameraId, trackKey, null, aiSummary, aiPersonCount);
+                behaviorLogMapper.insertBehaviorLog(row);
+                promoteSnapshot(row, eventTime.toLocalDate());
+                bindImportedLogToClip(row.getId(), bo, aiSummary);
+                inserted++;
+                continue;
+            }
+
 
 
             BehaviorLogItemVo row = buildVideoImportRow(eventType, eventDate, event, urls, qualityFlag,
-                    cameraId, trackKey, null);
+                    cameraId, trackKey, null, aiSummary, aiPersonCount);
             behaviorLogMapper.insertBehaviorLog(row);
             promoteSnapshot(row, eventTime.toLocalDate());
+            bindImportedLogToClip(row.getId(), bo, aiSummary);
             if (!applyExitPresencePipeline(row, cameraId, trackKey, eventDate, urls, qualityFlag))
             {
                 sessionSkipped++;
@@ -853,9 +1042,10 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
         result.setMessage(String.format(
 
-                "已写入 %d 条行为日志（跳过 %d 条重复，session 处理异常 %d 条，重复进门抑制 %d 条）",
+                "已写入 %d 条行为日志（原始事件 %d，过滤后 %d，丢弃路过 %d，同人组 %d，跳过重复 %d，session 异常 %d，重复进门抑制 %d）",
 
-                inserted, skipped, sessionSkipped, duplicateEnterSkipped));
+                inserted, filtered.getRawCount(), filtered.getEvents().size(), filtered.getDroppedPassCount(),
+                filtered.getPersonGroupCount(), skipped, sessionSkipped, duplicateEnterSkipped));
 
         return result;
 
@@ -865,7 +1055,7 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
     private BehaviorLogItemVo buildVideoImportRow(String eventType, Date eventDate, JsonNode event,
             SnapshotUrls urls, String qualityFlag, Long cameraId, String trackKey,
-            PresenceTrackProcessResultVo processed)
+            PresenceTrackProcessResultVo processed, String aiSummary, Integer aiPersonCount)
     {
         BehaviorLogItemVo row = new BehaviorLogItemVo();
         row.setEventType(eventType);
@@ -876,6 +1066,12 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
         row.setCameraId(cameraId);
         row.setTrackKey(trackKey);
         row.setQualityFlag(qualityFlag);
+        if (!StringUtils.isEmpty(aiSummary))
+        {
+            row.setBehaviorAnalysis(aiSummary);
+        }
+        row.setPersonCount(aiPersonCount);
+        row.setSnapshotBbox(readEventSnapshotBbox(event));
         if (processed != null)
         {
             row.setPersonId(processed.getPersonId());
@@ -884,6 +1080,53 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
             row.setBodyMatchScore(processed.getBodyMatchScore());
         }
         return row;
+    }
+
+    private String readSnapshotBboxJson(JsonNode bbox)
+    {
+        if (bbox == null || bbox.isNull())
+        {
+            return null;
+        }
+        try
+        {
+            return objectMapper.writeValueAsString(bbox);
+        }
+        catch (Exception ex)
+        {
+            return null;
+        }
+    }
+
+    private String readEventSnapshotBbox(JsonNode event)
+    {
+        if (event == null || event.isNull())
+        {
+            return null;
+        }
+        return readSnapshotBboxJson(event.path("snapshotBbox"));
+    }
+
+    private void bindImportedLogToClip(Long logId, BehaviorLogImportFromVideoBo bo, String aiSummary)
+    {
+        if (logId == null || bo == null)
+        {
+            return;
+        }
+        if (bo.getClipId() == null && StringUtils.isEmpty(bo.getSceneGroupId()))
+        {
+            return;
+        }
+        // 导入前已完成任务级 AI 时，直接标记 success，避免界面一直「分析中」
+        String analysisStatus = StringUtils.isEmpty(aiSummary) ? "pending" : "success";
+        try
+        {
+            behaviorLogMapper.updateBehaviorLogVideoBind(logId, bo.getSceneGroupId(), bo.getClipId(), analysisStatus);
+        }
+        catch (Exception ex)
+        {
+            log.warn("bind clip for imported logId={} failed: {}", logId, ex.getMessage());
+        }
     }
 
     private boolean applyExitPresencePipeline(BehaviorLogItemVo row, Long cameraId, String trackKey,

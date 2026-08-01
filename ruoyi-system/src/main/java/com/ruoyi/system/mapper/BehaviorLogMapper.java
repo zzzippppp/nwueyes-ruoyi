@@ -9,8 +9,9 @@ public interface BehaviorLogMapper
 {
     List<BehaviorLogItemVo> selectBehaviorLogList(@Param("beginDate") LocalDate beginDate,
             @Param("endDate") LocalDate endDate, @Param("cameraId") Long cameraId,
-            @Param("eventType") String eventType, @Param("beginTime") String beginTime,
-            @Param("endTime") String endTime, @Param("limit") Integer limit);
+            @Param("eventType") String eventType, @Param("displayName") String displayName,
+            @Param("personType") String personType, @Param("personId") Long personId,
+            @Param("beginTime") String beginTime, @Param("endTime") String endTime, @Param("limit") Integer limit);
 
     int insertBehaviorLog(BehaviorLogItemVo row);
 
@@ -26,6 +27,11 @@ public interface BehaviorLogMapper
             @Param("faceMatchScore") Float faceMatchScore,
             @Param("bodyMatchScore") Float bodyMatchScore,
             @Param("qualityFlag") String qualityFlag);
+
+    int updateBehaviorLogVideoBind(@Param("id") Long id,
+            @Param("sceneGroupId") String sceneGroupId,
+            @Param("clipId") Long clipId,
+            @Param("analysisStatus") String analysisStatus);
 
     int updateBehaviorAnalysis(@Param("id") Long id, @Param("behaviorAnalysis") String behaviorAnalysis);
 

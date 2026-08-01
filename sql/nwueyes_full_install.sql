@@ -973,6 +973,7 @@ CREATE TABLE ai_analysis_results (
     appearance    TEXT,
     behavior      TEXT,
     risk_level    VARCHAR(32),
+    person_count  INTEGER,
     raw_json      TEXT,
     error_message TEXT,
     created_at    TIMESTAMP NOT NULL DEFAULT NOW(),

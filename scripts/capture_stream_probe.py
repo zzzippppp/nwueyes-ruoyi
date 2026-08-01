@@ -17,7 +17,7 @@ from live_stream_worker_yolo import (
     open_capture,
     rtsp_candidate_urls,
 )
-from roi_scale import scale_roi_and_line
+from roi_scale import REF_HEIGHT, REF_WIDTH, scale_roi_and_line
 
 
 def main() -> int:
@@ -28,6 +28,8 @@ def main() -> int:
     parser.add_argument("--camera-id", type=int, required=True)
     parser.add_argument("--line-y", type=int, default=520)
     parser.add_argument("--roi", default="620,170,1290,760")
+    parser.add_argument("--ref-width", type=int, default=REF_WIDTH)
+    parser.add_argument("--ref-height", type=int, default=REF_HEIGHT)
     parser.add_argument("--open-timeout-sec", type=float, default=60.0)
     parser.add_argument("--rtsp-buffer-size", type=int, default=1)
     args = parser.parse_args()
@@ -91,7 +93,11 @@ def main() -> int:
         return 4
 
     height, width = probe.shape[:2]
-    x1, y1, x2, y2, line_y, _ = scale_roi_and_line(args.roi, args.line_y, width, height)
+    ref_w = max(1, int(args.ref_width))
+    ref_h = max(1, int(args.ref_height))
+    x1, y1, x2, y2, line_y, _ = scale_roi_and_line(
+        args.roi, args.line_y, width, height, ref_width=ref_w, ref_height=ref_h
+    )
 
     probe_dir = os.path.join(args.storage_root, "log_library", "probe")
     os.makedirs(probe_dir, exist_ok=True)
@@ -117,8 +123,12 @@ def main() -> int:
                 "overlayFileName": overlay_name,
                 "width": width,
                 "height": height,
-                "lineY": args.line_y,
-                "roi": args.roi,
+                "refWidth": ref_w,
+                "refHeight": ref_h,
+                "lineY": line_y,
+                "roi": f"{x1},{y1},{x2},{y2}",
+                "lineYBase": args.line_y,
+                "roiBase": args.roi,
             },
             ensure_ascii=False,
         ),

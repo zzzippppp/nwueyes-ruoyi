@@ -59,7 +59,7 @@ def main():
     parser.add_argument("--image1", required=True)
     parser.add_argument("--image2", required=True)
     parser.add_argument("--workspace", default="E:/nwueyes/ruoyi")
-    parser.add_argument("--threshold", type=float, default=0.45)
+    parser.add_argument("--threshold", type=float, default=0.35)
     parser.add_argument("--min-det-score", type=float, default=0.35)
     args = parser.parse_args()
 

@@ -1,5 +1,7 @@
 package com.ruoyi.system.domain.bo;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 /**
  * 识别侧上报事件
  */
@@ -32,6 +34,9 @@ public class PresenceEventIngestBo
 
     /** 行为分析（自然语言，可选） */
     private String behaviorAnalysis;
+
+    /** 监控画面人物框 JSON */
+    private JsonNode snapshotBbox;
 
     public String getEventType()
     {
@@ -161,5 +166,15 @@ public class PresenceEventIngestBo
     public void setBehaviorAnalysis(String behaviorAnalysis)
     {
         this.behaviorAnalysis = behaviorAnalysis;
+    }
+
+    public JsonNode getSnapshotBbox()
+    {
+        return snapshotBbox;
+    }
+
+    public void setSnapshotBbox(JsonNode snapshotBbox)
+    {
+        this.snapshotBbox = snapshotBbox;
     }
 }

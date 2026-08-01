@@ -14,7 +14,8 @@ public class AiAnalysisResultVo
     private String summary;
     private String appearance;
     private String behavior;
-    private String riskLevel;
+    /** 视频中人数 */
+    private Integer personCount;
     private String rawJson;
     private String errorMessage;
 
@@ -42,8 +43,8 @@ public class AiAnalysisResultVo
     public void setAppearance(String appearance) { this.appearance = appearance; }
     public String getBehavior() { return behavior; }
     public void setBehavior(String behavior) { this.behavior = behavior; }
-    public String getRiskLevel() { return riskLevel; }
-    public void setRiskLevel(String riskLevel) { this.riskLevel = riskLevel; }
+    public Integer getPersonCount() { return personCount; }
+    public void setPersonCount(Integer personCount) { this.personCount = personCount; }
     public String getRawJson() { return rawJson; }
     public void setRawJson(String rawJson) { this.rawJson = rawJson; }
     public String getErrorMessage() { return errorMessage; }

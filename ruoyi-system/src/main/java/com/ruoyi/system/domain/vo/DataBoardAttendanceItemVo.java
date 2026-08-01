@@ -17,6 +17,8 @@ public class DataBoardAttendanceItemVo
     /** student / staff / stranger */
     private String personKind;
 
+    private Long cameraId;
+
     private String locationName;
 
     /** absent / present / left */
@@ -70,6 +72,16 @@ public class DataBoardAttendanceItemVo
     public void setPersonKind(String personKind)
     {
         this.personKind = personKind;
+    }
+
+    public Long getCameraId()
+    {
+        return cameraId;
+    }
+
+    public void setCameraId(Long cameraId)
+    {
+        this.cameraId = cameraId;
     }
 
     public String getLocationName()

@@ -72,13 +72,19 @@ def error_payload(kind: str, image_path: str, message: str, model: str = "") -> 
     }
 
 
+# Java 侧靠该前缀从混杂日志里定位真实 JSON（InsightFace/ORT 会往 stdout 打含 {} 的日志）
+EMBED_JSON_MARKER = "__NWUEYES_EMBED_JSON__"
+
+
 def dump_result(payload: Dict[str, Any], output_path: Optional[str] = None) -> None:
-    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    # 单行 JSON，避免多行与日志交错后难以截取
+    compact = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    pretty = json.dumps(payload, ensure_ascii=False, indent=2)
     if output_path:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_path).write_text(text, encoding="utf-8")
-    else:
-        print(text)
+        Path(output_path).write_text(pretty, encoding="utf-8")
+    # 始终往 stdout 打带标记的一行，供 Java Process 解析
+    print(f"{EMBED_JSON_MARKER}{compact}", flush=True)
 
 
 def main_fail(message: str, code: int = 1) -> None:
