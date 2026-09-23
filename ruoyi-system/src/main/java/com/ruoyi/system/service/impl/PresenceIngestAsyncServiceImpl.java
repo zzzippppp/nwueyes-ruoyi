@@ -15,8 +15,10 @@ import org.springframework.stereotype.Service;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.config.PresenceIngestProperties;
 import com.ruoyi.system.domain.bo.PresenceEventIngestBo;
+import com.ruoyi.system.domain.vo.CameraConfigVo;
 import com.ruoyi.system.domain.vo.PresenceTrackProcessResultVo;
 import com.ruoyi.system.service.IBehaviorLogService;
+import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IPresenceIngestAsyncService;
 import com.ruoyi.system.service.IPresenceTrackService;
 
@@ -41,6 +43,9 @@ public class PresenceIngestAsyncServiceImpl implements IPresenceIngestAsyncServi
 
     @Autowired
     private PresenceIngestProperties ingestProperties;
+
+    @Autowired
+    private ICameraService cameraService;
 
     @Override
     public void submit(PresenceEventIngestBo bo)
@@ -81,6 +86,12 @@ public class PresenceIngestAsyncServiceImpl implements IPresenceIngestAsyncServi
             PresenceTrackProcessResultVo result;
             if ("exit".equals(eventType))
             {
+                // 门内(door)已废除出门/体态识别：忽略门内出门事件，离场由门外人脸判定
+                if ("door".equals(resolveCameraRole(bo.getCameraId())))
+                {
+                    log.info("async ingest ignore door exit track={} cameraId={}", bo.getTrackKey(), bo.getCameraId());
+                    return;
+                }
                 result = presenceTrackService.processExit(bo.getCameraId(), bo.getTrackKey(), eventTime,
                         bo.getFaceImageUrl(), bo.getBodyImageUrl(), quality);
             }
@@ -110,6 +121,26 @@ public class PresenceIngestAsyncServiceImpl implements IPresenceIngestAsyncServi
             log.error("async ingest failed track={} event={}: {}", bo.getTrackKey(), bo.getEventType(), ex.getMessage(),
                     ex);
         }
+    }
+
+    private String resolveCameraRole(Long cameraId)
+    {
+        if (cameraId == null)
+        {
+            return "door";
+        }
+        try
+        {
+            CameraConfigVo cfg = cameraService.getCameraConfig(cameraId);
+            if (cfg != null && !StringUtils.isEmpty(cfg.getCameraRole()))
+            {
+                return cfg.getCameraRole();
+            }
+        }
+        catch (Exception ignored)
+        {
+        }
+        return "door";
     }
 
     private Date parseEventTime(String raw)

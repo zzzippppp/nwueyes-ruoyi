@@ -1,12 +1,16 @@
 package com.ruoyi.system.mapper;
 
 import java.util.Date;
+import java.util.List;
 import org.apache.ibatis.annotations.Param;
 import com.ruoyi.system.domain.vo.PresenceOpenSessionVo;
 
 public interface PresenceIngestMapper
 {
     int existsLocation(@Param("cameraId") Long cameraId);
+
+    /** 所有仍处于 open 的停留会话（兜底签退用） */
+    List<PresenceOpenSessionVo> selectAllOpen();
 
     PresenceOpenSessionVo selectOpenByTrack(@Param("cameraId") Long cameraId, @Param("trackKey") String trackKey);
 

@@ -73,4 +73,10 @@ public interface VideoAnalysisMapper
     PresenceVideoClipVo selectMatchingPersonClip(@Param("cameraId") Long cameraId,
             @Param("trackKey") String trackKey,
             @Param("eventTime") Date eventTime);
+
+    /** 统计引用该片段/场景的行为日志数量（用于判断是否为证据片段） */
+    int countEvidenceLogsByClip(@Param("clipId") Long clipId, @Param("sceneGroupId") String sceneGroupId);
+
+    /** 删除片段记录（无证据时清理） */
+    int deleteClipById(@Param("id") Long id);
 }

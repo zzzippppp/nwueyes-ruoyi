@@ -15,6 +15,9 @@ public class PresenceReplayStartBo
 
     private Long cameraId;
 
+    /** 摄像头角色：door=门内(进门/路过)，exterior=门外(人脸比对在场者记离场)；空则按 door 处理 */
+    private String cameraRole;
+
     private Integer lineY;
 
     private String roi;
@@ -67,6 +70,16 @@ public class PresenceReplayStartBo
     public void setCameraId(Long cameraId)
     {
         this.cameraId = cameraId;
+    }
+
+    public String getCameraRole()
+    {
+        return cameraRole;
+    }
+
+    public void setCameraRole(String cameraRole)
+    {
+        this.cameraRole = cameraRole;
     }
 
     public Integer getLineY()

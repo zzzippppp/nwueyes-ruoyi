@@ -29,7 +29,7 @@ public class DataBoardSummaryVo
 
     private Long strangerVisitorCount;
 
-    /** 当前在场会话数（open，实时） */
+    /** 当前在场档案人员数（去重，open，实时；不含陌生人） */
     private Long openSessionCount;
 
     /** 已离开停留秒数（当日到达且 closed） */
@@ -55,6 +55,8 @@ public class DataBoardSummaryVo
     private List<DataBoardCameraItemVo> byLocation = new ArrayList<>();
 
     private List<DataBoardRecentSessionVo> recentSessions = new ArrayList<>();
+
+    private List<DataBoardRecentLogVo> recentLogs = new ArrayList<>();
 
     private List<DataBoardPersonItemVo> personItems = new ArrayList<>();
 
@@ -240,6 +242,16 @@ public class DataBoardSummaryVo
     public void setRecentSessions(List<DataBoardRecentSessionVo> recentSessions)
     {
         this.recentSessions = recentSessions;
+    }
+
+    public List<DataBoardRecentLogVo> getRecentLogs()
+    {
+        return recentLogs;
+    }
+
+    public void setRecentLogs(List<DataBoardRecentLogVo> recentLogs)
+    {
+        this.recentLogs = recentLogs;
     }
 
     public List<DataBoardPersonItemVo> getPersonItems()

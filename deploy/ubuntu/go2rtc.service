@@ -1,0 +1,19 @@
+[Unit]
+Description=go2rtc RTSP/WebRTC gateway for nwueyes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nwueyes
+Group=nwueyes
+WorkingDirectory=/opt/nwueyes/go2rtc
+ExecStart=/opt/nwueyes/go2rtc/go2rtc -config /opt/nwueyes/go2rtc/go2rtc.yaml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

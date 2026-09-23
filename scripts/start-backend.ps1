@@ -8,5 +8,5 @@ if (-not (Test-Path $jar)) {
     mvn -q -pl ruoyi-admin -am package -DskipTests
     Pop-Location
 }
-Write-Host "启动后端 -> jdbc:postgresql://localhost:5432/nwueyes"
+Write-Host "启动后端 -> jdbc:postgresql://172.18.14.80:5432/nwueyes"
 java -jar $jar

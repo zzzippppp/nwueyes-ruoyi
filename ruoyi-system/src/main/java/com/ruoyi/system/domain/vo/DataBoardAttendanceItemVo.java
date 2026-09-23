@@ -24,7 +24,9 @@ public class DataBoardAttendanceItemVo
     /** absent / present / left */
     private String attendanceStatus;
 
-    private Long passageCount;
+    private Long enterCount;
+
+    private Long exitCount;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date arrivalAt;
@@ -104,14 +106,24 @@ public class DataBoardAttendanceItemVo
         this.attendanceStatus = attendanceStatus;
     }
 
-    public Long getPassageCount()
+    public Long getEnterCount()
     {
-        return passageCount;
+        return enterCount;
     }
 
-    public void setPassageCount(Long passageCount)
+    public void setEnterCount(Long enterCount)
     {
-        this.passageCount = passageCount;
+        this.enterCount = enterCount;
+    }
+
+    public Long getExitCount()
+    {
+        return exitCount;
+    }
+
+    public void setExitCount(Long exitCount)
+    {
+        this.exitCount = exitCount;
     }
 
     public Date getArrivalAt()

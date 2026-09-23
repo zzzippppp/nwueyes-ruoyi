@@ -33,6 +33,9 @@ public class CameraConfigVo
 
     private Integer refHeight;
 
+    /** 摄像头角色：door=门内(记进门/路过)，exterior=门外(人脸比对在场者记离场) */
+    private String cameraRole;
+
     private String createTime;
 
     public Long getId()
@@ -184,6 +187,16 @@ public class CameraConfigVo
     public void setRefHeight(Integer refHeight)
     {
         this.refHeight = refHeight;
+    }
+
+    public String getCameraRole()
+    {
+        return cameraRole;
+    }
+
+    public void setCameraRole(String cameraRole)
+    {
+        this.cameraRole = cameraRole;
     }
 
     public String getCreateTime()

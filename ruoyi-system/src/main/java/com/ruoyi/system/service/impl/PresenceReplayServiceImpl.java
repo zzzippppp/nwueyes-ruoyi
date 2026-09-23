@@ -20,7 +20,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -40,6 +44,7 @@ import com.ruoyi.system.domain.vo.PresenceReplayTaskVo;
 import com.ruoyi.system.service.IBehaviorLogService;
 import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IPresenceReplayService;
+import com.ruoyi.system.service.IPresenceVideoClipService;
 import com.ruoyi.system.service.IVideoAnalysisService;
 
 import jakarta.annotation.Resource;
@@ -51,6 +56,7 @@ import jakarta.annotation.Resource;
 public class PresenceReplayServiceImpl implements IPresenceReplayService
 
 {
+    private static final Logger log = LoggerFactory.getLogger(PresenceReplayServiceImpl.class);
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -71,6 +77,10 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
     private IBehaviorLogService behaviorLogService;
 
     @Autowired
+    @Lazy
+    private IPresenceVideoClipService presenceVideoClipService;
+
+    @Autowired
     private IVideoAnalysisService videoAnalysisService;
 
 
@@ -78,6 +88,10 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
     @Resource(name = "threadPoolTaskExecutor")
 
     private ThreadPoolTaskExecutor executor;
+
+    /** 离线 YOLO 分析专用池，与公共异步池隔离 */
+    @Resource(name = "presenceAnalyzeExecutor")
+    private ThreadPoolTaskExecutor analyzeExecutor;
 
 
 
@@ -302,7 +316,8 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
         File resultFile = analyzeResultFile(taskId);
         try
         {
-            List<AiAnalysisResultVo> results = videoAnalysisService.analyzeLocalVideo(videoPath, modelKeys, eventTimes);
+            List<AiAnalysisResultVo> results = videoAnalysisService.analyzeLocalVideo(videoPath, modelKeys, eventTimes,
+                    resolveTaskCameraId(taskId, resultFile));
             ObjectNode root = (ObjectNode) objectMapper.readTree(Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
             root.set("aiAnalysis", objectMapper.valueToTree(results == null ? Collections.emptyList() : results));
             root.put("aiAnalysisStatus", "success");
@@ -347,6 +362,32 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
             {
             }
         }
+    }
+
+    private Long resolveTaskCameraId(String taskId, File resultFile)
+    {
+        ReplayTaskState state = taskMap.get(taskId);
+        if (state != null && state.cameraId != null)
+        {
+            return state.cameraId;
+        }
+        try
+        {
+            if (resultFile != null && resultFile.exists())
+            {
+                ObjectNode root = (ObjectNode) objectMapper.readTree(
+                        Files.readString(resultFile.toPath(), StandardCharsets.UTF_8));
+                if (root.hasNonNull("cameraId") && root.path("cameraId").isNumber())
+                {
+                    long id = root.path("cameraId").asLong(0L);
+                    return id > 0 ? id : null;
+                }
+            }
+        }
+        catch (Exception ignored)
+        {
+        }
+        return null;
     }
 
     private List<Double> extractEventTimesSec(ObjectNode root)
@@ -460,7 +501,20 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
         taskMap.put(taskId, state);
 
-        executor.execute(() -> runTask(state, bo, replayMode));
+        ThreadPoolTaskExecutor pool = replayMode ? executor : analyzeExecutor;
+        try
+        {
+            pool.execute(() -> runTask(state, bo, replayMode));
+        }
+        catch (RejectedExecutionException ex)
+        {
+            state.status = "failed";
+            state.message = replayMode ? "回放队列已满" : "分析队列已满，已跳过本片（避免无限堆积）";
+            state.finishedAt = nowText();
+            state.appendLog("[error] " + state.message + ": " + ex.getMessage());
+            log.warn("presence task rejected mode={} taskId={} cameraId={} tip={}",
+                    replayMode ? "replay" : "analyze", taskId, bo.getCameraId(), state.message);
+        }
 
         return state.toVo();
 
@@ -490,27 +544,58 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
             Process process = pb.start();
 
-
-
-            try (BufferedReader reader = new BufferedReader(
-
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)))
-
+            Thread gobbler = new Thread(() ->
             {
-
-                String line;
-
-                while ((line = reader.readLine()) != null)
-
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)))
                 {
-
-                    state.appendLog(line);
-
+                    String line;
+                    while ((line = reader.readLine()) != null)
+                    {
+                        state.appendLog(line);
+                    }
                 }
+                catch (Exception ex)
+                {
+                    state.appendLog("[error] log-gobbler: " + ex.getMessage());
+                }
+            }, "presence-" + (replayMode ? "replay" : "analyze") + "-log-" + state.taskId);
+            gobbler.setDaemon(true);
+            gobbler.start();
 
+            int timeoutSec = resolveAnalyzeTimeoutSec(replayMode);
+            boolean finished = process.waitFor(timeoutSec, TimeUnit.SECONDS);
+            if (!finished)
+            {
+                process.destroyForcibly();
+                try
+                {
+                    process.waitFor(30, TimeUnit.SECONDS);
+                }
+                catch (InterruptedException ie)
+                {
+                    Thread.currentThread().interrupt();
+                }
+                try
+                {
+                    gobbler.join(5000L);
+                }
+                catch (InterruptedException ie)
+                {
+                    Thread.currentThread().interrupt();
+                }
+                throw new IllegalStateException(
+                        (replayMode ? "回放" : "YOLO 分析") + "超时(" + timeoutSec + "s)，已强制结束进程");
             }
-
-            int exitCode = process.waitFor();
+            try
+            {
+                gobbler.join(5000L);
+            }
+            catch (InterruptedException ie)
+            {
+                Thread.currentThread().interrupt();
+            }
+            int exitCode = process.exitValue();
 
             state.exitCode = exitCode;
 
@@ -541,7 +626,13 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
                     maybeAutoImportBehaviorLogs(state, bo);
 
-                    maybeAutoAiAnalysis(bo);
+                    // 分析后清理：无证据片段（门内仅出门、门外未命中在场者）删除视频+片段行+分析产物
+                    boolean discarded = maybeCleanupDiscardedClip(state, bo);
+
+                    if (!discarded)
+                    {
+                        maybeAutoAiAnalysis(bo);
+                    }
 
                 }
 
@@ -581,6 +672,17 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
     }
 
+    private int resolveAnalyzeTimeoutSec(boolean replayMode)
+    {
+        if (replayMode)
+        {
+            return 1800;
+        }
+        PresenceIngestProperties.ClipCapture clip = ingestProperties.getClip();
+        int timeout = clip == null ? 900 : clip.getAnalyzeTimeoutSec();
+        return Math.max(60, timeout);
+    }
+
 
 
     private void applyCameraConfig(PresenceReplayStartBo bo)
@@ -593,6 +695,10 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
         if (cfg == null)
         {
             throw new IllegalArgumentException("摄像头不存在: " + bo.getCameraId());
+        }
+        if (StringUtils.isEmpty(bo.getCameraRole()) && !StringUtils.isEmpty(cfg.getCameraRole()))
+        {
+            bo.setCameraRole(cfg.getCameraRole());
         }
         if (bo.getLineY() == null && cfg.getLineY() != null)
         {
@@ -730,6 +836,35 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
 
 
+    private boolean maybeCleanupDiscardedClip(ReplayTaskState state, PresenceReplayStartBo bo)
+    {
+        if (!Boolean.TRUE.equals(bo.getAutoImportBehaviorLogs()))
+        {
+            return false;
+        }
+        if (bo.getClipId() == null && StringUtils.isEmpty(bo.getSceneGroupId()))
+        {
+            return false;
+        }
+        try
+        {
+            boolean deleted = presenceVideoClipService.deleteClipIfNoEvidence(
+                    bo.getClipId(), bo.getSceneGroupId(), state.taskId);
+            if (deleted)
+            {
+                state.appendLog("[cleanup] 无证据片段已删除 clipId=" + bo.getClipId()
+                        + " scene=" + bo.getSceneGroupId());
+                state.message = "YOLO 分析完成：无证据事件，片段已删除";
+            }
+            return deleted;
+        }
+        catch (Exception ex)
+        {
+            state.appendLog("[cleanup] failed: " + ex.getMessage());
+            return false;
+        }
+    }
+
     private File analyzeDir()
 
     {
@@ -823,6 +958,10 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
         cmd.add("--ref-height");
 
         cmd.add(String.valueOf(bo.getRefHeight() == null ? 1080 : bo.getRefHeight()));
+
+        cmd.add("--role");
+
+        cmd.add(StringUtils.isEmpty(bo.getCameraRole()) ? "door" : bo.getCameraRole());
 
         PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
         if (live != null)

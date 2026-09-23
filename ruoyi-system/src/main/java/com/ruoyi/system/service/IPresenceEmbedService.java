@@ -14,6 +14,11 @@ public interface IPresenceEmbedService
     AnalyzeEmbedResultVo embedAnalyzeCaptures(String taskId);
 
     /**
+     * 同上；includeBody=false 时跳过体态(body)向量抽取（门内已废除体态识别）。
+     */
+    AnalyzeEmbedResultVo embedAnalyzeCaptures(String taskId, boolean includeBody);
+
+    /**
      * 对单张图片 URL 抽取 512 维向量（kind=face|body）。
      */
     EmbeddingVectorVo embedImage(String kind, String imageUrl);

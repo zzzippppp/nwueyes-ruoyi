@@ -135,7 +135,8 @@ public class PersonArchiveServiceImpl implements IPersonArchiveService
             throw new IllegalStateException("人脸向量抽取失败: "
                     + (faceEmbed == null ? "null" : faceEmbed.getError()));
         }
-        profileMatchMapper.insertFaceProfile(personId, VectorLiteralUtil.toLiteral(faceEmbed.getEmbedding()), imageUrl);
+        profileMatchMapper.insertFaceProfile(personId, VectorLiteralUtil.toLiteral(faceEmbed.getEmbedding()), imageUrl,
+                faceEmbed.getDetScore());
         personArchiveMapper.updateFaceImageUrl(personId, imageUrl);
     }
 
@@ -150,7 +151,11 @@ public class PersonArchiveServiceImpl implements IPersonArchiveService
         {
             type = "student";
         }
-        if (!"student".equals(type) && !"staff".equals(type) && !"stranger".equals(type))
+        if ("stranger".equals(type))
+        {
+            throw new IllegalArgumentException("陌生人请在陌生人研判中处理");
+        }
+        if (!"student".equals(type) && !"staff".equals(type))
         {
             type = "student";
         }

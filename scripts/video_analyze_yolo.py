@@ -147,10 +147,7 @@ def save_event_assets(
         if write_jpeg(os.path.join(face_dir, face_name), face_img, 95):
             face_url = f"/dashboard/storage/file/log/face/{date_url}/{face_name}"
 
-    if body_img is not None and getattr(body_img, "size", 0) > 0:
-        body_name = f"analyze_{task_id}_{safe_key}_{event_type}_{ts}_body.jpg"
-        if write_jpeg(os.path.join(body_dir, body_name), body_img, 92):
-            body_url = f"/dashboard/storage/file/log/body/{date_url}/{body_name}"
+    # 体态已废除：不再落盘 body 证据图
 
     # 监控画面：优先最佳脸所在整帧
     if frame_img is not None and getattr(frame_img, "size", 0) > 0:
@@ -164,8 +161,6 @@ def save_event_assets(
 def quality_flag_for(face_img, body_img) -> str:
     if face_img is not None and getattr(face_img, "size", 0) > 0:
         return "normal"
-    if body_img is not None and getattr(body_img, "size", 0) > 0:
-        return "low"
     return "missing"
 
 
@@ -202,6 +197,11 @@ def main():
     parser.add_argument("--enter-face-grace-sec", type=float, default=4.0)
     parser.add_argument("--min-face-det-score", type=float, default=0.55)
     parser.add_argument("--track-prefix", default="yolo")
+    parser.add_argument(
+        "--role",
+        default="door",
+        help="door=门内(门线判进门/路过, 丢弃出门) exterior=门外(不判门线, 仅逐轨迹选最佳脸, 由后端比对在场者判离场)",
+    )
     parser.add_argument("--face-sample-fps", type=float, default=15.0, help="全画面检脸采样帧率")
     parser.add_argument(
         "--pass-near-band-px",
@@ -362,7 +362,7 @@ def main():
                     st.best_center_box = (int(bx1), int(by1), int(bx2), int(by2))
 
                 cooldown_key = f"t{tid_i}"
-                if st.event_type is None and frame_idx - last_event_frame.get(cooldown_key, -999999) >= args.event_cooldown_frames:
+                if args.role != "exterior" and st.event_type is None and frame_idx - last_event_frame.get(cooldown_key, -999999) >= args.event_cooldown_frames:
                     event_type = door_gate.try_cross(
                         cross_pending,
                         tid_i,
@@ -492,9 +492,12 @@ def main():
         if st.event_type is None:
             if st.hits < min_pass_hits:
                 continue
+            if args.role == "exterior":
+                # 门外：不受门线约束，成脸即作为离场候选；是否离场由后端「人脸比对在场者」决定
+                st.event_type = "face"
             # 场景片常从「人已在门内往外走」开拍，片尾截断时脚点未完整穿出
             # 门内先出现且曾贴近门线 → 记出门；否则一律路过（与距门线无关）
-            if door_gate.side(tid) == SIDE_INSIDE and st.ever_near_line:
+            elif door_gate.side(tid) == SIDE_INSIDE and st.ever_near_line:
                 st.event_type = "exit"
                 st.event_inferred = True
                 door_gate.commit(tid, "exit")
@@ -607,6 +610,10 @@ def main():
                 "snapshotUrl": next(
                     (e.get("snapshotUrl") for e in events if e["trackId"] == tid),
                     "",
+                ),
+                "snapshotBbox": next(
+                    (e.get("snapshotBbox") for e in events if e["trackId"] == tid and e.get("snapshotBbox")),
+                    None,
                 ),
             }
         )

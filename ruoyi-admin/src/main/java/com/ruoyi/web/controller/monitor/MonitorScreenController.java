@@ -109,12 +109,12 @@ public class MonitorScreenController
     }
 
     /**
-     * 查询当前仍在运行的直播识别任务（页面跳转后恢复状态用）。
+     * 查询当前仍在运行的直播识别任务列表（支持多摄像头并行；页面跳转后恢复状态用）。
      */
     @GetMapping("/live/active")
     public AjaxResult activeLiveRecognize()
     {
-        return AjaxResult.success(presenceLiveService.getActiveTask());
+        return AjaxResult.success(presenceLiveService.getActiveTasks());
     }
 
     /**

@@ -1,0 +1,18 @@
+# Copy to /opt/nwueyes/go2rtc/go2rtc.yaml.
+# Replace YOUR_SERVER_LAN_IP with the address browsers on the LAN can reach.
+
+api:
+  listen: "127.0.0.1:1984"
+  # Nginx proxies the browser-facing /go2rtc/ path to this local API.
+  origin: "*"
+
+rtsp:
+  listen: "127.0.0.1:8554"
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    - YOUR_SERVER_LAN_IP:8555
+
+# Spring Boot dynamically registers cam_{cameraId} streams via /api/streams.
+streams: {}

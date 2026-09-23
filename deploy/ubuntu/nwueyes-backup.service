@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup nwueyes PostgreSQL and persistent media
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/env bash /opt/nwueyes/ruoyi/deploy/ubuntu/backup.sh

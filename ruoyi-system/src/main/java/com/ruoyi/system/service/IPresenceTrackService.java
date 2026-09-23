@@ -17,6 +17,12 @@ public interface IPresenceTrackService
     PresenceTrackProcessResultVo processExit(Long cameraId, String trackKey, Date eventTime,
             String faceImageUrl, String bodyImageUrl, String qualityFlag);
 
+    /**
+     * 门外摄像头「人脸→在场者→离场」：人脸库匹配命中且该人当前有 open session 时关闭会话并签退。
+     * 未命中、或命中但不在场时返回 skippedOrphanExit=true（不做任何处理）。
+     */
+    PresenceTrackProcessResultVo processExitByFace(Long cameraId, java.util.List<Double> faceEmbedding, Date eventTime);
+
     /** 进门预览：人脸库匹配，不写库。 */
     PresenceTrackMatchPreviewVo previewEnterMatch(String trackKey, String faceImageUrl, String bodyImageUrl);
 

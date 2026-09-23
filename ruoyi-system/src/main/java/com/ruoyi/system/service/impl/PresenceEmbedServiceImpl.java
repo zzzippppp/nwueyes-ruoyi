@@ -168,6 +168,13 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
     @Override
     public AnalyzeEmbedResultVo embedAnalyzeCaptures(String taskId)
     {
+        // 体态已废除：默认只抽人脸向量
+        return embedAnalyzeCaptures(taskId, false);
+    }
+
+    @Override
+    public AnalyzeEmbedResultVo embedAnalyzeCaptures(String taskId, boolean includeBody)
+    {
         if (StringUtils.isEmpty(taskId))
         {
             throw new IllegalArgumentException("taskId 不能为空");
@@ -214,7 +221,7 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
             for (Iterator<JsonNode> it = tracksNode.elements(); it.hasNext();)
             {
                 JsonNode track = it.next();
-                CaptureTrackEmbedVo row = buildCaptureTrackEmbed(track);
+                CaptureTrackEmbedVo row = buildCaptureTrackEmbed(track, includeBody);
                 if (Boolean.TRUE.equals(row.getFaceEmbedding().getOk()))
                 {
                     faceOk++;
@@ -244,7 +251,7 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
                 row.setBodyImageUrl(bodyUrl);
                 row.setSampledFrames(event.path("captureSamples").asInt(0));
                 row.setFaceEmbedding(embedKind("face", faceUrl));
-                row.setBodyEmbedding(embedKind("body", bodyUrl));
+                row.setBodyEmbedding(includeBody ? embedKind("body", bodyUrl) : disabledEmbedding());
                 if (Boolean.TRUE.equals(row.getFaceEmbedding().getOk()))
                 {
                     faceOk++;
@@ -266,6 +273,11 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
 
     private CaptureTrackEmbedVo buildCaptureTrackEmbed(JsonNode track)
     {
+        return buildCaptureTrackEmbed(track, true);
+    }
+
+    private CaptureTrackEmbedVo buildCaptureTrackEmbed(JsonNode track, boolean includeBody)
+    {
         CaptureTrackEmbedVo row = new CaptureTrackEmbedVo();
         row.setTrackId(track.path("trackId").asInt(0));
         row.setTrackKey(track.path("trackKey").asText(""));
@@ -281,8 +293,18 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
         }
         row.setSampledFrames(track.path("sampledFrames").asInt(0));
         row.setFaceEmbedding(embedKind("face", row.getFaceImageUrl()));
-        row.setBodyEmbedding(embedKind("body", row.getBodyImageUrl()));
+        row.setBodyEmbedding(includeBody ? embedKind("body", row.getBodyImageUrl()) : disabledEmbedding());
         return row;
+    }
+
+    /** 门内已废除体态识别：返回一个不抽取体态向量的占位结果（ok=false）。 */
+    private EmbeddingVectorVo disabledEmbedding()
+    {
+        EmbeddingVectorVo vo = new EmbeddingVectorVo();
+        vo.setOk(false);
+        vo.setDim(512);
+        vo.setError("体态识别已废除，未抽取体态向量");
+        return vo;
     }
 
     @Override

@@ -1,0 +1,11 @@
+[Unit]
+Description=Cleanup nwueyes live clip ring buffer
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=-/etc/nwueyes/nwueyes.env
+# 仅清 _ring；若也要删旧场景片，可在 env 里设 CLIP_MAX_AGE_DAYS=14
+ExecStart=/usr/bin/env bash /opt/nwueyes/ruoyi/deploy/ubuntu/cleanup-ring.sh

@@ -72,6 +72,23 @@ public class EmbeddingVectorVo
         this.quality = quality;
     }
 
+    /**
+     * 人脸检测置信度 detScore（越高越"像人脸"）。取自 quality.detScore，缺失返回 null。
+     */
+    public Float getDetScore()
+    {
+        if (quality == null)
+        {
+            return null;
+        }
+        Object v = quality.get("detScore");
+        if (v instanceof Number)
+        {
+            return ((Number) v).floatValue();
+        }
+        return null;
+    }
+
     public String getError()
     {
         return error;

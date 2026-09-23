@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""全画面人脸检测 + 多维质量评分与扩边裁剪（门禁场景：拒绝后脑勺/无效脸）。"""
+"""全画面人脸检测 + 多维质量评分与扩边裁剪。"""
 
 from __future__ import annotations
 
@@ -14,11 +14,8 @@ import numpy as np
 _ANALYZER = None
 _ANALYZER_LOCK = threading.Lock()
 
-# 可用脸门槛：低于此不参与选优，避免后脑勺/乱检当“最佳脸”
+# 可用脸检测分门槛：低于此不参与选优
 MIN_USABLE_DET = 0.55
-MIN_USABLE_POSE = 0.42
-# 正脸优选档：达到后侧脸不可覆盖
-PREFERRED_POSE_SCORE = 0.58
 
 
 @dataclass
@@ -31,6 +28,7 @@ class ScoredFace:
     pose_score: float
     bbox: Tuple[int, int, int, int]  # x1,y1,x2,y2 原框
     crop: np.ndarray  # 扩边后的人脸
+    landmarks_plausible: bool = True
     embedding: Optional[np.ndarray] = None
     usable: bool = True
 
@@ -49,7 +47,7 @@ def _get_analyzer(model_name: str = "buffalo_l", det_size: Tuple[int, int] = (64
             allowed_modules=["detection", "recognition"],
             providers=["CPUExecutionProvider"],
         )
-        # det_thresh 略抬高，减少后脑勺等弱误检
+        # 与可用脸检测分门槛保持一致，减少弱误检
         app.prepare(ctx_id=-1, det_size=det_size, det_thresh=0.55)
         _ANALYZER = app
         return app
@@ -57,7 +55,7 @@ def _get_analyzer(model_name: str = "buffalo_l", det_size: Tuple[int, int] = (64
 
 def landmarks_plausible(keypoints, bbox: Tuple[float, float, float, float]) -> bool:
     """
-    五官几何是否像一张真脸。后脑勺误检常见特征：
+    五官几何是否合理，用作质量诊断：
     - 双眼间距相对脸宽过小
     - 眼/鼻/嘴垂直顺序混乱
     - 关键点挤成一团
@@ -76,7 +74,7 @@ def landmarks_plausible(keypoints, bbox: Tuple[float, float, float, float]) -> b
         return False
     if eye_dist < 12.0:
         return False
-    # 关键点整体跨度应覆盖脸宽相当比例（后脑勺常挤在局部）
+    # 关键点整体跨度应覆盖脸宽相当比例
     xs = points[:5, 0]
     ys = points[:5, 1]
     if float(xs.max() - xs.min()) < face_w * 0.28:
@@ -111,7 +109,7 @@ def frontal_score(keypoints) -> float:
         return 0.0
     eye_mid = (left_eye + right_eye) / 2
     mouth_mid = (left_mouth + right_mouth) / 2
-    # 侧脸：鼻尖相对中线偏移大；后脑勺乱点也会被重罚
+    # 鼻尖相对中线偏移越大，姿态评分越低
     nose_eye_offset = abs(float(nose[0] - eye_mid[0])) / eye_distance
     nose_mouth_offset = abs(float(nose[0] - mouth_mid[0])) / eye_distance
     eye_tilt = abs(float(left_eye[1] - right_eye[1])) / eye_distance
@@ -142,13 +140,16 @@ def evaluate_face(frame: np.ndarray, face, min_size: int = 40) -> Optional[Score
 
     kps = getattr(face, "kps", None)
     bbox = (x1, y1, x2, y2)
-    if not landmarks_plausible(kps, bbox):
+
+    # 五点缺失时无法可靠计算姿态，仍然不参与评分；
+    # 严格五官几何关系只作为诊断，不再硬过滤。
+    if kps is None or len(kps) < 5:
         return None
+    landmark_geometry_ok = landmarks_plausible(kps, bbox)
 
     detection_score = float(getattr(face, "det_score", 0.5))
     pose = frontal_score(kps)
-    # 检测分/姿态过低：直接丢弃（后脑勺常落在这里）
-    if detection_score < MIN_USABLE_DET or pose < MIN_USABLE_POSE:
+    if detection_score < MIN_USABLE_DET:
         return None
 
     pad_x, pad_y = width * 0.28, height * 0.32
@@ -173,13 +174,13 @@ def evaluate_face(frame: np.ndarray, face, min_size: int = 40) -> Optional[Score
     relative_face = math.sqrt((width * height) / max(1.0, frame_w * frame_h))
     size_score = min(1.0, relative_face / 0.32)
 
-    # 姿态优先，清晰度次之；不可再靠头发纹理清晰度胜出
+    # 使用归一化后的清晰度分，与尺寸、检测分、曝光和姿态综合评分。
     score = (
-        pose * 0.42
-        + sharpness_score * 0.24
-        + size_score * 0.14
-        + detection_score * 0.12
-        + exposure_score * 0.08
+        pose * 0.003
+        + sharpness_score * 0.115
+        + size_score * 0.472
+        + detection_score * 0.315
+        + exposure_score * 0.095
     )
 
     embedding = None
@@ -196,6 +197,7 @@ def evaluate_face(frame: np.ndarray, face, min_size: int = 40) -> Optional[Score
         pose_score=float(pose),
         bbox=(int(x1), int(y1), int(x2), int(y2)),
         crop=crop,
+        landmarks_plausible=landmark_geometry_ok,
         embedding=embedding,
         usable=True,
     )
@@ -207,20 +209,15 @@ def should_replace_best_face(
     candidate: ScoredFace,
     best_sharpness: Optional[float] = None,
 ) -> bool:
-    """仅在可用脸之间选优；正脸档不可被侧脸覆盖。
+    """直接按照新综合质量分选择最佳脸。
 
-    best_sharpness 保留为兼容参数，当前公式不使用。
+    best_pose 和 best_sharpness 仅为兼容现有调用方保留，
+    不再参与最佳脸决策。
     """
     if candidate is None or not candidate.usable:
         return False
     if best_score < 0:
         return True
-    old_pref = best_pose >= PREFERRED_POSE_SCORE
-    new_pref = candidate.pose_score >= PREFERRED_POSE_SCORE
-    if new_pref and not old_pref:
-        return True
-    if old_pref and not new_pref:
-        return False
     return candidate.score > best_score
 
 
@@ -230,7 +227,7 @@ def detect_scored_faces(
     min_size: int = 40,
     model_name: str = "buffalo_l",
 ) -> List[ScoredFace]:
-    """全画面检脸并打分；已过滤后脑勺/无效脸，按 score 降序。"""
+    """全画面检脸并打分；达到检测门槛的脸按 score 降序。"""
     if frame is None or frame.size == 0:
         return []
     try:

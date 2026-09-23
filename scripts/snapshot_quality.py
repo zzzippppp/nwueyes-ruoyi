@@ -421,10 +421,7 @@ def save_analyze_event_snapshot(
         face_name = f"analyze_{task_id}_{safe_key}_{event_type}_{ts}_face.jpg"
         cv2.imwrite(os.path.join(face_dir, face_name), face_img)
         face_url = f"/dashboard/storage/file/log/face/{date_url}/{face_name}"
-    if body_img is not None and body_img.size > 0:
-        body_name = f"analyze_{task_id}_{safe_key}_{event_type}_{ts}_body.jpg"
-        cv2.imwrite(os.path.join(body_dir, body_name), body_img)
-        body_url = f"/dashboard/storage/file/log/body/{date_url}/{body_name}"
+    # 体态已废除：不再落盘 body 证据图
     if frame_img is not None and getattr(frame_img, "size", 0) > 0:
         snap_name = f"analyze_{task_id}_{safe_key}_{event_type}_{ts}_snap.jpg"
         cv2.imwrite(

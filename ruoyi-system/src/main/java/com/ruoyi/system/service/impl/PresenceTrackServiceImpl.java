@@ -77,8 +77,14 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             return buildSkippedEnterResult(existingByTrack, null, null, null, null, normalizedQuality);
         }
 
+        // 只做人脸：无可用人脸则不建档、不开 session（体态已彻底废除）
         EmbeddingVectorVo faceEmbed = presenceEmbedService.embedImage("face", faceImageUrl);
-        EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
+        if (!Boolean.TRUE.equals(faceEmbed.getOk()) || faceEmbed.getEmbedding() == null)
+        {
+            log.info("enter skipped: no usable face track={} cameraId={}", trackKey, cameraId);
+            return buildResult(null, "skipped", null, defaultDisplayName(trackKey), PERSON_TYPE_UNKNOWN, null, null,
+                    QUALITY_MISSING.equals(normalizedQuality) ? normalizedQuality : QUALITY_LOW, false);
+        }
 
         Long personId = null;
         String displayName = defaultDisplayName(trackKey);
@@ -86,18 +92,15 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         Float faceMatchScore = null;
         boolean strangerRegistered = false;
 
-        if (Boolean.TRUE.equals(faceEmbed.getOk()) && faceEmbed.getEmbedding() != null)
+        FaceMatchCandidateVo match = searchFace(faceEmbed.getEmbedding());
+        if (match != null)
         {
-            FaceMatchCandidateVo match = searchFace(faceEmbed.getEmbedding());
-            if (match != null)
+            faceMatchScore = match.getScore();
+            if (match.getScore() != null && match.getScore() >= faceMatchThreshold())
             {
-                faceMatchScore = match.getScore();
-                if (match.getScore() != null && match.getScore() >= faceMatchThreshold())
-                {
-                    personId = match.getPersonId();
-                    displayName = StringUtils.nvl(match.getDisplayName(), displayName);
-                    personKind = StringUtils.nvl(match.getPersonKind(), PERSON_TYPE_STUDENT);
-                }
+                personId = match.getPersonId();
+                displayName = StringUtils.nvl(match.getDisplayName(), displayName);
+                personKind = StringUtils.nvl(match.getPersonKind(), PERSON_TYPE_STUDENT);
             }
         }
 
@@ -111,19 +114,17 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             }
         }
 
-        // 进门未匹配在案人员时一律建 stranger 档案
+        // 有脸但未匹配在案人员时建 stranger 档案（只写人脸）
         if (personId == null)
         {
-            // 不要用可复用的 yolo_1 做人名
             displayName = "未登记-" + IdUtils.fastSimpleUUID().substring(0, 8);
-            personId = registerStranger(displayName, faceImageUrl, bodyImageUrl, faceEmbed, bodyEmbed);
+            personId = registerStranger(displayName, faceImageUrl, faceEmbed);
             personKind = PERSON_TYPE_STRANGER;
             strangerRegistered = true;
         }
 
-        String bodyLiteral = toLiteral(bodyEmbed);
         Long sessionId = presenceIngestMapper.insertOpenSession(cameraId, personId, trackKey, eventTime,
-                faceMatchScore, bodyLiteral);
+                faceMatchScore, null);
 
         PresenceTrackProcessResultVo result = buildResult(sessionId, "open", personId, displayName, personKind, faceMatchScore, null,
                 normalizedQuality, strangerRegistered);
@@ -140,48 +141,60 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             String faceImageUrl, String bodyImageUrl, String qualityFlag)
     {
         validateLocation(cameraId);
+        // 体态出门已彻底废除：离场只走 processExitByFace（门外人脸比对）
         String normalizedQuality = normalizeQuality(qualityFlag, faceImageUrl, bodyImageUrl);
+        log.info("orphan exit log-only track={} cameraId={} (body exit abolished; use exterior face exit)",
+                trackKey, cameraId);
+        return buildSkippedOrphanExitResult(trackKey, normalizedQuality);
+    }
 
-        EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
-        ExitBodyMatch matched = resolveExitOpenSession(cameraId, trackKey, eventTime, bodyEmbed);
-        if (matched == null || matched.session == null)
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PresenceTrackProcessResultVo processExitByFace(Long cameraId, List<Double> faceEmbedding, Date eventTime)
+    {
+        validateLocation(cameraId);
+        if (faceEmbedding == null || faceEmbedding.isEmpty())
         {
-            log.info(
-                    "orphan exit log-only track={} cameraId={} (no open session with body similarity >= threshold)",
-                    trackKey, cameraId);
-            return buildSkippedOrphanExitResult(trackKey, normalizedQuality);
+            return buildFaceExitOrphan();
         }
-
-        PresenceOpenSessionVo open = matched.session;
+        FaceMatchCandidateVo match = searchFace(faceEmbedding);
+        if (match == null || match.getScore() == null || match.getScore() < faceMatchThreshold())
+        {
+            // 未命中人脸库：门外只做离场，不建档、不记录
+            return buildFaceExitOrphan();
+        }
+        Long personId = match.getPersonId();
+        // 命中但当前不在场（无 open session）→ 不处理（可能是进门途中/仅路过门外）
+        PresenceOpenSessionVo open = presenceIngestMapper.selectAnyOpenByPerson(personId);
+        if (open == null)
+        {
+            return buildFaceExitOrphan();
+        }
         if (eventTime != null && open.getArrivalAt() != null && eventTime.before(open.getArrivalAt()))
         {
-            log.info(
-                    "orphan exit rejected: eventTime before arrival track={} sessionId={} eventTime={} arrivalAt={}",
-                    trackKey, open.getSessionId(), eventTime, open.getArrivalAt());
-            return buildSkippedOrphanExitResult(trackKey, normalizedQuality);
+            return buildFaceExitOrphan();
         }
-        Float bodyMatchScore = matched.score;
-        int updated = presenceIngestMapper.closeSession(open.getSessionId(), eventTime, open.getPersonId(), bodyMatchScore);
+        int updated = presenceIngestMapper.closeSession(open.getSessionId(), eventTime, personId, match.getScore());
         if (updated <= 0)
         {
-            log.warn("exit session close failed track={} matchedSession={} sessionId={}", trackKey,
-                    open.getTrackKey(), open.getSessionId());
-            return buildSkippedOrphanExitResult(trackKey, normalizedQuality);
+            return buildFaceExitOrphan();
         }
-
-        if (!StringUtils.isEmpty(trackKey) && !trackKey.equals(open.getTrackKey()))
-        {
-            log.info("exit body-match closed session track={} eventTrack={} score={}",
-                    open.getTrackKey(), trackKey, bodyMatchScore);
-        }
-
-        String personKind = open.getPersonId() == null ? PERSON_TYPE_UNKNOWN : PERSON_TYPE_STRANGER;
-        String displayName = defaultDisplayName(open.getTrackKey());
-        PresenceTrackProcessResultVo result = buildResult(open.getSessionId(), "closed", open.getPersonId(), displayName,
-                personKind, null, bodyMatchScore, normalizedQuality, false);
-        attendanceDailyService.onExit(open.getPersonId(), open.getSessionId(), eventTime,
+        attendanceDailyService.onExit(personId, open.getSessionId(), eventTime,
                 computeDwellSeconds(open.getArrivalAt(), eventTime));
-        return result;
+        String displayName = StringUtils.nvl(match.getDisplayName(), defaultDisplayName(open.getTrackKey()));
+        String personKind = StringUtils.nvl(match.getPersonKind(), PERSON_TYPE_STUDENT);
+        log.info("exterior face-exit closed session personId={} sessionId={} score={}",
+                personId, open.getSessionId(), match.getScore());
+        return buildResult(open.getSessionId(), "closed", personId, displayName, personKind,
+                match.getScore(), null, QUALITY_NORMAL, false);
+    }
+
+    private PresenceTrackProcessResultVo buildFaceExitOrphan()
+    {
+        PresenceTrackProcessResultVo vo = buildResult(null, "orphan", null, null, PERSON_TYPE_UNKNOWN,
+                null, null, QUALITY_NORMAL, false);
+        vo.setSkippedOrphanExit(true);
+        return vo;
     }
 
     @Override
@@ -193,12 +206,6 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         vo.setMatched(false);
 
         EmbeddingVectorVo faceEmbed = presenceEmbedService.embedImage("face", faceImageUrl);
-        EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
-        if (Boolean.TRUE.equals(bodyEmbed.getOk()) && bodyEmbed.getEmbedding() != null)
-        {
-            vo.setBodyEmbedding(bodyEmbed.getEmbedding());
-        }
-
         if (!Boolean.TRUE.equals(faceEmbed.getOk()) || faceEmbed.getEmbedding() == null)
         {
             return vo;
@@ -224,48 +231,11 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
     public PresenceTrackMatchPreviewVo previewExitMatch(String exitTrackKey, String bodyImageUrl,
             List<VirtualOpenSessionVo> openSessions)
     {
+        // 体态出门已废除：预览不再做 body ReID
         PresenceTrackMatchPreviewVo vo = new PresenceTrackMatchPreviewVo();
         vo.setDisplayName(defaultDisplayName(exitTrackKey));
         vo.setPersonKind(PERSON_TYPE_UNKNOWN);
         vo.setMatched(false);
-
-        EmbeddingVectorVo bodyEmbed = presenceEmbedService.embedImage("body", bodyImageUrl);
-        if (!Boolean.TRUE.equals(bodyEmbed.getOk()) || bodyEmbed.getEmbedding() == null)
-        {
-            return vo;
-        }
-        if (openSessions == null || openSessions.isEmpty())
-        {
-            return vo;
-        }
-
-        float threshold = bodyMatchThreshold();
-        VirtualOpenSessionVo bestSession = null;
-        float bestScore = -1f;
-        for (VirtualOpenSessionVo session : openSessions)
-        {
-            if (session.getEnterBodyEmbedding() == null || session.getEnterBodyEmbedding().isEmpty())
-            {
-                continue;
-            }
-            float score = cosineSimilarity(bodyEmbed.getEmbedding(), session.getEnterBodyEmbedding());
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestSession = session;
-            }
-        }
-        if (bestSession == null || bestScore < threshold)
-        {
-            return vo;
-        }
-
-        vo.setMatched(true);
-        vo.setBodyMatchScore(bestScore);
-        vo.setPersonId(bestSession.getPersonId());
-        vo.setDisplayName(StringUtils.nvl(bestSession.getDisplayName(), defaultDisplayName(bestSession.getTrackKey())));
-        vo.setPersonKind(StringUtils.nvl(bestSession.getPersonKind(), PERSON_TYPE_UNKNOWN));
-        vo.setMatchedSessionTrackKey(bestSession.getTrackKey());
         return vo;
     }
 
@@ -363,9 +333,9 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
         return vo;
     }
 
-    private Long registerStranger(String displayName, String faceImageUrl, String bodyImageUrl,
-            EmbeddingVectorVo faceEmbed, EmbeddingVectorVo bodyEmbed)
+    private Long registerStranger(String displayName, String faceImageUrl, EmbeddingVectorVo faceEmbed)
     {
+        // 体态(body ReID)已废除，陌生人建档只保留人脸档案
         dataBoardMapper.insertPerson(displayName, PERSON_TYPE_STRANGER, null, "");
         Long personId = dataBoardMapper.selectLastPersonId();
         if (personId == null)
@@ -379,27 +349,7 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
             if (!StringUtils.isEmpty(archiveFaceUrl))
             {
                 profileMatchMapper.insertFaceProfile(personId, VectorLiteralUtil.toLiteral(faceEmbed.getEmbedding()),
-                        archiveFaceUrl);
-            }
-        }
-
-        if (Boolean.TRUE.equals(bodyEmbed.getOk()) && bodyEmbed.getEmbedding() != null)
-        {
-            String archiveBodyUrl = promoteToArchiveBody(bodyImageUrl);
-            if (!StringUtils.isEmpty(archiveBodyUrl))
-            {
-                profileMatchMapper.insertBodyProfile(personId, VectorLiteralUtil.toLiteral(bodyEmbed.getEmbedding()),
-                        archiveBodyUrl);
-            }
-        }
-        else if (!StringUtils.isEmpty(bodyImageUrl))
-        {
-            String archiveBodyUrl = promoteToArchiveBody(bodyImageUrl);
-            if (!StringUtils.isEmpty(archiveBodyUrl))
-            {
-                log.warn("stranger body embed failed, archive image only personId={} error={}",
-                        personId, bodyEmbed != null ? bodyEmbed.getError() : "null");
-                profileMatchMapper.insertBodyProfileImageOnly(personId, archiveBodyUrl);
+                        archiveFaceUrl, faceEmbed.getDetScore());
             }
         }
 
@@ -524,13 +474,10 @@ public class PresenceTrackServiceImpl implements IPresenceTrackService
                 return normalized;
             }
         }
-        if (StringUtils.isEmpty(faceImageUrl) && StringUtils.isEmpty(bodyImageUrl))
+        // 体态已废除：只按人脸图判定质量
+        if (StringUtils.isEmpty(faceImageUrl))
         {
             return QUALITY_MISSING;
-        }
-        if (StringUtils.isEmpty(faceImageUrl) && !StringUtils.isEmpty(bodyImageUrl))
-        {
-            return QUALITY_LOW;
         }
         return QUALITY_NORMAL;
     }

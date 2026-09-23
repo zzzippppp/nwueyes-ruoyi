@@ -10,6 +10,7 @@ import com.ruoyi.system.domain.vo.DataBoardCameraItemVo;
 import com.ruoyi.system.domain.vo.DataBoardOverviewVo;
 import com.ruoyi.system.domain.vo.DataBoardPersonItemVo;
 import com.ruoyi.system.domain.vo.DataBoardRecentSessionVo;
+import com.ruoyi.system.domain.vo.DataBoardRecentLogVo;
 import com.ruoyi.system.domain.vo.DataBoardPersonSearchVo;
 import com.ruoyi.system.domain.vo.DataBoardStrangerItemVo;
 
@@ -30,6 +31,9 @@ public interface DataBoardMapper
     List<DataBoardRecentSessionVo> selectRecentSessions(@Param("beginDate") Date beginDate,
             @Param("endDate") Date endDate, @Param("cameraId") Long cameraId, @Param("limit") int limit,
             @Param("filter") DataBoardSessionFilterBo filter);
+
+    List<DataBoardRecentLogVo> selectRecentBehaviorLogs(@Param("beginDate") Date beginDate,
+            @Param("endDate") Date endDate, @Param("cameraId") Long cameraId, @Param("limit") int limit);
 
     List<DataBoardAttendanceItemVo> selectAttendanceInfoList(@Param("beginDate") Date beginDate,
             @Param("endDate") Date endDate, @Param("cameraId") Long cameraId, @Param("limit") int limit,

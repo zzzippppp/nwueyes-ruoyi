@@ -1,5 +1,7 @@
 package com.ruoyi.system.service.impl;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -129,6 +131,77 @@ public class PresenceVideoClipServiceImpl implements IPresenceVideoClipService
         return persisted;
     }
 
+    @Override
+    public boolean deleteClipIfNoEvidence(Long clipId, String sceneGroupId, String taskId)
+    {
+        if (clipId == null && StringUtils.isEmpty(sceneGroupId))
+        {
+            return false;
+        }
+        int evidence = videoAnalysisMapper.countEvidenceLogsByClip(clipId, sceneGroupId);
+        if (evidence > 0)
+        {
+            return false;
+        }
+        if (clipId != null)
+        {
+            try
+            {
+                PresenceVideoClipVo clip = videoAnalysisMapper.selectClipById(clipId);
+                if (clip != null)
+                {
+                    deleteClipVideoFile(clip.getVideoUrl());
+                }
+                videoAnalysisMapper.deleteClipById(clipId);
+            }
+            catch (Exception ex)
+            {
+                log.warn("delete clip row failed clipId={}: {}", clipId, ex.getMessage());
+            }
+        }
+        deleteAnalyzeArtifacts(taskId);
+        log.info("discarded clip cleaned clipId={} scene={} task={}", clipId, sceneGroupId, taskId);
+        return true;
+    }
+
+    private void deleteClipVideoFile(String videoUrl)
+    {
+        if (StringUtils.isEmpty(videoUrl))
+        {
+            return;
+        }
+        try
+        {
+            Optional<Path> file = storagePaths.resolveClipUrlToFile(videoUrl);
+            if (file.isPresent())
+            {
+                Files.deleteIfExists(file.get());
+            }
+        }
+        catch (Exception ex)
+        {
+            log.warn("delete clip video file failed url={}: {}", videoUrl, ex.getMessage());
+        }
+    }
+
+    private void deleteAnalyzeArtifacts(String taskId)
+    {
+        if (StringUtils.isEmpty(taskId))
+        {
+            return;
+        }
+        try
+        {
+            File dir = new File(ingestProperties.getReplayProfileRoot(), "analyze");
+            Files.deleteIfExists(new File(dir, taskId + ".mp4").toPath());
+            Files.deleteIfExists(new File(dir, taskId + ".json").toPath());
+        }
+        catch (Exception ex)
+        {
+            log.warn("delete analyze artifacts failed task={}: {}", taskId, ex.getMessage());
+        }
+    }
+
     private boolean shouldAutoAnalyzeYolo(PresenceVideoClipVo clip)
     {
         if (clip == null || ingestProperties.getClip() == null || !ingestProperties.getClip().isAutoAnalyzeYolo())
@@ -161,6 +234,12 @@ public class PresenceVideoClipServiceImpl implements IPresenceVideoClipService
             bo.setVideoBaseTime(clip.getStartTime());
             bo.setAutoImportBehaviorLogs(ingestProperties.getClip().isAutoImportBehaviorLogs());
             PresenceReplayTaskVo task = presenceReplayService.startAnalyze(bo);
+            if (task != null && "failed".equalsIgnoreCase(task.getStatus()))
+            {
+                log.warn("auto YOLO analyze rejected/failed clipId={} scene={} taskId={} msg={}",
+                        clip.getId(), clip.getSceneGroupId(), task.getTaskId(), task.getMessage());
+                return;
+            }
             log.info("auto YOLO analyze queued clipId={} scene={} taskId={}",
                     clip.getId(), clip.getSceneGroupId(), task == null ? "-" : task.getTaskId());
         }

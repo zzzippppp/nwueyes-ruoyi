@@ -24,4 +24,10 @@ public interface IVideoAnalysisService
      * 有事件则围着事件抽帧，无事件则抽视频中段 60%。
      */
     List<AiAnalysisResultVo> analyzeLocalVideo(Path videoFile, List<String> modelKeys, List<Double> eventTimesSec);
+
+    /**
+     * 同上；cameraId 用于按摄像头角色选择进门/出门提示词（门外 exterior 用 exitPrompt）。
+     */
+    List<AiAnalysisResultVo> analyzeLocalVideo(Path videoFile, List<String> modelKeys, List<Double> eventTimesSec,
+            Long cameraId);
 }

@@ -60,7 +60,12 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
     @Override
     public boolean updatePerson(Long personId, DataBoardPersonUpdateBo bo)
     {
-        return dataBoardMapper.updatePerson(personId, bo.getDisplayName(), normalizePersonType(bo.getPersonType()),
+        String personType = normalizePersonType(bo.getPersonType());
+        if (TYPE_STRANGER.equals(personType))
+        {
+            throw new IllegalArgumentException("陌生人请在陌生人研判中处理");
+        }
+        return dataBoardMapper.updatePerson(personId, bo.getDisplayName(), personType,
                 normalizeEmployeeNo(bo.getEmployeeNo()), bo.getNote(), null, null) > 0;
     }
 
@@ -166,7 +171,7 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
         avatarFile.transferTo(savePath.toFile());
 
         String imageUrl = storagePaths.buildArchiveFaceUrl(fileName);
-        dataBoardMapper.insertPerson(defaultName(displayName), normalizePersonType(personKind), null, note);
+        dataBoardMapper.insertPerson(defaultName(displayName), normalizeRegistryType(personKind), null, note);
         Long personId = dataBoardMapper.selectLastPersonId();
         if (personId == null)
         {
@@ -179,7 +184,8 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
             throw new IllegalStateException("人脸向量抽取失败: "
                     + StringUtils.nvl(faceEmbed.getError(), "未知错误"));
         }
-        profileMatchMapper.insertFaceProfile(personId, VectorLiteralUtil.toLiteral(faceEmbed.getEmbedding()), imageUrl);
+        profileMatchMapper.insertFaceProfile(personId, VectorLiteralUtil.toLiteral(faceEmbed.getEmbedding()), imageUrl,
+                faceEmbed.getDetScore());
         return imageUrl;
     }
 
@@ -298,6 +304,10 @@ public class DataBoardManageServiceImpl implements IDataBoardManageService
 
     private String normalizeRegistryType(String raw)
     {
+        if (TYPE_STRANGER.equalsIgnoreCase(raw))
+        {
+            throw new IllegalArgumentException("陌生人请在陌生人研判中处理");
+        }
         if (TYPE_STAFF.equalsIgnoreCase(raw))
         {
             return TYPE_STAFF;

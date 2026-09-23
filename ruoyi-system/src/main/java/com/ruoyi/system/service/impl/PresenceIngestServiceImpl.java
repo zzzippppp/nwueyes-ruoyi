@@ -20,11 +20,14 @@ import com.ruoyi.common.utils.StringUtils;
 
 import com.ruoyi.system.domain.bo.PresenceEventIngestBo;
 
+import com.ruoyi.system.domain.vo.CameraConfigVo;
+
 import com.ruoyi.system.domain.vo.PresenceIngestResultVo;
 
 import com.ruoyi.system.domain.vo.PresenceTrackProcessResultVo;
 
 import com.ruoyi.system.service.IBehaviorLogService;
+import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IPresenceIngestService;
 
 import com.ruoyi.system.service.IPresenceTrackService;
@@ -60,6 +63,10 @@ public class PresenceIngestServiceImpl implements IPresenceIngestService
     @Autowired
 
     private IBehaviorLogService behaviorLogService;
+
+    @Autowired
+
+    private ICameraService cameraService;
 
 
 
@@ -101,6 +108,15 @@ public class PresenceIngestServiceImpl implements IPresenceIngestService
 
         {
 
+            // 门内(door)已废除出门/体态识别：离场统一由门外人脸判定，这里直接忽略门内出门事件
+            if ("door".equals(resolveCameraRole(bo.getCameraId())))
+            {
+                PresenceIngestResultVo ignored = new PresenceIngestResultVo();
+                ignored.setEventType(eventType);
+                ignored.setStatus("ignored_door_exit");
+                return ignored;
+            }
+
             processed = presenceTrackService.processExit(bo.getCameraId(), trackKey, eventTime,
 
                     bo.getFaceImageUrl(), bo.getBodyImageUrl(), null);
@@ -134,6 +150,28 @@ public class PresenceIngestServiceImpl implements IPresenceIngestService
 
         return vo;
 
+    }
+
+
+
+    private String resolveCameraRole(Long cameraId)
+    {
+        if (cameraId == null)
+        {
+            return "door";
+        }
+        try
+        {
+            CameraConfigVo cfg = cameraService.getCameraConfig(cameraId);
+            if (cfg != null && !StringUtils.isEmpty(cfg.getCameraRole()))
+            {
+                return cfg.getCameraRole();
+            }
+        }
+        catch (Exception ignored)
+        {
+        }
+        return "door";
     }
 
 

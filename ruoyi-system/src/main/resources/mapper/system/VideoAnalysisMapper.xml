@@ -340,4 +340,28 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         LIMIT 1
     </select>
 
+    <select id="countEvidenceLogsByClip" resultType="int">
+        SELECT COUNT(1)
+        FROM behavior_logs
+        WHERE
+        <choose>
+            <when test="clipId != null and sceneGroupId != null and sceneGroupId != ''">
+                clip_id = #{clipId} OR scene_group_id = #{sceneGroupId}
+            </when>
+            <when test="clipId != null">
+                clip_id = #{clipId}
+            </when>
+            <when test="sceneGroupId != null and sceneGroupId != ''">
+                scene_group_id = #{sceneGroupId}
+            </when>
+            <otherwise>
+                1 = 0
+            </otherwise>
+        </choose>
+    </select>
+
+    <delete id="deleteClipById">
+        DELETE FROM presence_video_clips WHERE id = #{id}
+    </delete>
+
 </mapper>

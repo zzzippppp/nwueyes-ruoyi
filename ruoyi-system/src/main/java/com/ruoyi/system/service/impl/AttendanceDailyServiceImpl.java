@@ -57,6 +57,57 @@ public class AttendanceDailyServiceImpl implements IAttendanceDailyService
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int autoCloseOpenSessions(java.util.Date closeTime)
+    {
+        java.util.Date cutoff = closeTime != null ? closeTime : new java.util.Date();
+        List<PresenceOpenSessionVo> opens = presenceIngestMapper.selectAllOpen();
+        if (opens == null || opens.isEmpty())
+        {
+            return 0;
+        }
+        int closed = 0;
+        for (PresenceOpenSessionVo open : opens)
+        {
+            if (open.getSessionId() == null)
+            {
+                continue;
+            }
+            // 截止时间之后才进来的会话（如刚跨零点进门）不动
+            if (open.getArrivalAt() != null && cutoff.before(open.getArrivalAt()))
+            {
+                continue;
+            }
+            int updated = presenceIngestMapper.closeSession(open.getSessionId(), cutoff, open.getPersonId(), null);
+            if (updated <= 0)
+            {
+                continue;
+            }
+            closed++;
+            if (open.getPersonId() != null)
+            {
+                // 考勤归属到「进门那天」，离场时间用截止时间
+                LocalDate statDate = open.getArrivalAt() != null
+                        ? open.getArrivalAt().toInstant().atZone(STAT_ZONE).toLocalDate()
+                        : cutoff.toInstant().atZone(STAT_ZONE).toLocalDate();
+                int dwell = computeDwellSeconds(open.getArrivalAt(), cutoff);
+                attendanceDailyMapper.updateOnExit(Date.valueOf(statDate), open.getPersonId(), cutoff, dwell);
+            }
+        }
+        return closed;
+    }
+
+    private int computeDwellSeconds(java.util.Date arrivalAt, java.util.Date departureAt)
+    {
+        if (arrivalAt == null || departureAt == null)
+        {
+            return 0;
+        }
+        long seconds = (departureAt.getTime() - arrivalAt.getTime()) / 1000L;
+        return (int) Math.max(0L, seconds);
+    }
+
+    @Override
     public List<PersonDailyAttendanceVo> listDailyAttendance(LocalDate statDate, LocalDate beginDate,
             LocalDate endDate, Long cameraId, String personType, String displayName, String employeeNo,
             Long personId, String attendanceStatus, int limit)

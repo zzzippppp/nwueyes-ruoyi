@@ -19,7 +19,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             c.line_y AS lineY,
             c.roi,
             c.ref_width AS refWidth,
-            c.ref_height AS refHeight
+            c.ref_height AS refHeight,
+            c.camera_role AS cameraRole
         FROM camera c
         WHERE c.serial_no IS NOT NULL
           AND TRIM(c.serial_no) &lt;&gt; ''
@@ -41,7 +42,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             line_y AS lineY,
             roi,
             ref_width AS refWidth,
-            ref_height AS refHeight
+            ref_height AS refHeight,
+            camera_role AS cameraRole
         FROM camera
         WHERE id = #{cameraId}
     </select>
@@ -199,6 +201,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             roi,
             ref_width AS refWidth,
             ref_height AS refHeight,
+            camera_role AS cameraRole,
             to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createTime
         FROM camera
         <where>
@@ -237,6 +240,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             roi,
             ref_width AS refWidth,
             ref_height AS refHeight,
+            camera_role AS cameraRole,
             to_char(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createTime
         FROM camera
         WHERE id = #{cameraId}

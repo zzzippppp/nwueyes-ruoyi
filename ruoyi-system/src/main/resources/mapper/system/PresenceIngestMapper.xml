@@ -8,6 +8,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         SELECT COUNT(1) FROM camera WHERE id = #{cameraId}
     </select>
 
+    <select id="selectAllOpen" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
+        SELECT
+            id AS sessionId,
+            camera_id AS cameraId,
+            person_id AS personId,
+            track_key AS trackKey,
+            arrival_at AS arrivalAt
+        FROM presence_sessions
+        WHERE status = 'open'
+        ORDER BY id
+    </select>
+
     <select id="selectOpenByTrack" resultType="com.ruoyi.system.domain.vo.PresenceOpenSessionVo">
         SELECT
             id AS sessionId,

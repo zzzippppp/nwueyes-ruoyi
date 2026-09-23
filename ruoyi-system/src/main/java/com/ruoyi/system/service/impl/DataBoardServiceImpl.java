@@ -19,6 +19,7 @@ import com.ruoyi.system.domain.vo.DataBoardOverviewVo;
 import com.ruoyi.system.domain.vo.DataBoardPersonItemVo;
 import com.ruoyi.system.domain.vo.DataBoardPersonSearchVo;
 import com.ruoyi.system.domain.vo.DataBoardRecentSessionVo;
+import com.ruoyi.system.domain.vo.DataBoardRecentLogVo;
 import com.ruoyi.system.domain.vo.DataBoardStrangerItemVo;
 import com.ruoyi.system.domain.vo.DataBoardSummaryVo;
 import com.ruoyi.system.mapper.DataBoardMapper;
@@ -68,6 +69,8 @@ public class DataBoardServiceImpl implements IDataBoardService
         List<DataBoardCameraItemVo> byLocation = dataBoardMapper.selectByCamera(sqlBegin, sqlEnd, cameraId, filter);
         List<DataBoardRecentSessionVo> recentSessions = dataBoardMapper.selectRecentSessions(sqlBegin, sqlEnd,
                 cameraId, limit, filter);
+        List<DataBoardRecentLogVo> recentLogs = dataBoardMapper.selectRecentBehaviorLogs(sqlBegin, sqlEnd,
+                cameraId, limit);
         List<DataBoardPersonItemVo> personItems = dataBoardMapper.selectPersonItems(sqlBegin, sqlEnd, cameraId, limit);
         List<DataBoardStrangerItemVo> strangerItems = groupStrangersByFace(sqlBegin, sqlEnd, cameraId, limit);
 
@@ -105,6 +108,7 @@ public class DataBoardServiceImpl implements IDataBoardService
         summary.setHourlyTrend(hourlyTrend);
         summary.setByLocation(byLocation);
         summary.setRecentSessions(recentSessions);
+        summary.setRecentLogs(recentLogs);
         summary.setPersonItems(personItems);
         summary.setStrangerItems(strangerItems);
         summary.setAttendanceItems(attendanceItems);

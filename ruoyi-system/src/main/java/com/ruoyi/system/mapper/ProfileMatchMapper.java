@@ -17,7 +17,7 @@ public interface ProfileMatchMapper
       @Param("eventTime") java.util.Date eventTime);
 
   int insertFaceProfile(@Param("personId") Long personId, @Param("embedding") String embeddingLiteral,
-      @Param("imageUrl") String imageUrl);
+      @Param("imageUrl") String imageUrl, @Param("qualityScore") Float qualityScore);
 
   int insertBodyProfile(@Param("personId") Long personId, @Param("embedding") String embeddingLiteral,
       @Param("imageUrl") String imageUrl);

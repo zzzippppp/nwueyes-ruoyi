@@ -1,0 +1,22 @@
+[Unit]
+Description=nwueyes Spring Boot backend
+After=network-online.target postgresql.service redis-server.service go2rtc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nwueyes
+Group=nwueyes
+WorkingDirectory=/opt/nwueyes/ruoyi
+EnvironmentFile=/etc/nwueyes/nwueyes.env
+ExecStart=/usr/bin/java -jar /opt/nwueyes/ruoyi/ruoyi-admin/target/ruoyi-admin.jar --spring.config.additional-location=optional:file:/etc/nwueyes/application-local.yml
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

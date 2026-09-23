@@ -32,8 +32,10 @@ import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.system.config.PresenceIngestProperties;
 import com.ruoyi.system.domain.vo.AiAnalysisResultVo;
 import com.ruoyi.system.domain.vo.AiModelOptionVo;
+import com.ruoyi.system.domain.vo.CameraConfigVo;
 import com.ruoyi.system.domain.vo.PresenceVideoClipVo;
 import com.ruoyi.system.mapper.VideoAnalysisMapper;
+import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IOssUploadService;
 import com.ruoyi.system.service.IVideoAnalysisService;
 import com.ruoyi.system.storage.PresenceStoragePaths;
@@ -56,6 +58,9 @@ public class VideoAnalysisServiceImpl implements IVideoAnalysisService
 
     @Autowired
     private PresenceStoragePaths storagePaths;
+
+    @Autowired
+    private ICameraService cameraService;
 
     @Autowired
     @Qualifier("presenceIngestExecutor")
@@ -133,6 +138,13 @@ public class VideoAnalysisServiceImpl implements IVideoAnalysisService
     @Override
     public List<AiAnalysisResultVo> analyzeLocalVideo(Path videoFile, List<String> modelKeys, List<Double> eventTimesSec)
     {
+        return analyzeLocalVideo(videoFile, modelKeys, eventTimesSec, null);
+    }
+
+    @Override
+    public List<AiAnalysisResultVo> analyzeLocalVideo(Path videoFile, List<String> modelKeys, List<Double> eventTimesSec,
+            Long cameraId)
+    {
         PresenceIngestProperties.AiAnalysis analysis = ingestProperties.getAnalysis();
         if (analysis == null || !analysis.isEnabled() || analysis.getModels() == null || analysis.getModels().isEmpty())
         {
@@ -162,8 +174,8 @@ public class VideoAnalysisServiceImpl implements IVideoAnalysisService
             vo.setModelName(StringUtils.nvl(model.getModelName(), modelKey));
             try
             {
-                Map<String, String> parsed = callModelForLocalFile(videoFile, model, analysis, analysis.getPrompt(),
-                        eventTimesSec);
+                Map<String, String> parsed = callModelForLocalFile(videoFile, model, analysis,
+                        resolveAnalysisPrompt(cameraId), eventTimesSec);
                 vo.setStatus("success");
                 vo.setSummary(parsed.get("summary"));
                 vo.setAppearance(parsed.get("appearance"));
@@ -684,11 +696,45 @@ public class VideoAnalysisServiceImpl implements IVideoAnalysisService
     private String buildPrompt(PresenceVideoClipVo clip, PresenceIngestProperties.AiAnalysis analysis)
     {
         String modelVideoUrl = StringUtils.nvl(clip.getPublicVideoUrl(), clip.getVideoUrl());
-        return analysis.getPrompt()
+        Long cameraId = clip == null ? null : clip.getCameraId();
+        return resolveAnalysisPrompt(cameraId)
                 + "\nclipType=" + clip.getClipType()
                 + "\nsceneGroupId=" + StringUtils.nvl(clip.getSceneGroupId(), "")
                 + "\ntrackKey=" + StringUtils.nvl(clip.getTrackKey(), "")
                 + "\nvideoUrl=" + modelVideoUrl;
+    }
+
+    /** 门外摄像头用 exitPrompt（进门提示词的视角对调），其余用门内 prompt。 */
+    private String resolveAnalysisPrompt(Long cameraId)
+    {
+        PresenceIngestProperties.AiAnalysis analysis = ingestProperties.getAnalysis();
+        String doorPrompt = analysis == null ? "" : StringUtils.nvl(analysis.getPrompt(), "");
+        if (!"exterior".equals(resolveCameraRole(cameraId)))
+        {
+            return doorPrompt;
+        }
+        String exitPrompt = analysis == null ? "" : analysis.getExitPrompt();
+        return StringUtils.isEmpty(exitPrompt) ? doorPrompt : exitPrompt;
+    }
+
+    private String resolveCameraRole(Long cameraId)
+    {
+        if (cameraId == null)
+        {
+            return "door";
+        }
+        try
+        {
+            CameraConfigVo cfg = cameraService.getCameraConfig(cameraId);
+            if (cfg != null && !StringUtils.isEmpty(cfg.getCameraRole()))
+            {
+                return cfg.getCameraRole();
+            }
+        }
+        catch (Exception ignored)
+        {
+        }
+        return "door";
     }
 
     private Path resolveLocalClipFile(PresenceVideoClipVo clip)

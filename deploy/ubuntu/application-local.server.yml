@@ -1,0 +1,110 @@
+# 复制到 /etc/nwueyes/application-local.yml。
+# 密钥放在 /etc/nwueyes/nwueyes.env，由 systemd 注入；不要提交该文件。
+# 功能开关与本地 application-local.yml 对齐（切片+离线分析入库）。
+
+ruoyi:
+  profile: ${NWUEYES_UPLOAD_PATH}
+
+spring:
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:127.0.0.1}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD}
+
+presence:
+  go2rtc:
+    autoStart: false
+  ingest:
+    enabled: true
+    apiKey: ${PRESENCE_INGEST_API_KEY}
+    defaultCameraId: 1
+    workspaceRoot: ${PRESENCE_WORKSPACE_ROOT}
+    storageRoot: ${PRESENCE_STORAGE_ROOT}
+    replayProfileRoot: ${PRESENCE_REPLAY_PROFILE_ROOT}
+    replayPythonCommand: ${PRESENCE_PYTHON}
+    replayIngestBaseUrl: ${PRESENCE_INGEST_BASE_URL}
+    replayScriptPath: scripts/video_replay_worker_yolo.py
+    analyzeScriptPath: scripts/video_analyze_yolo.py
+    captureScriptPath: scripts/capture_best_snapshots.py
+    liveScriptPath: scripts/live_stream_worker_yolo.py
+    embedScriptPath: scripts/embed_features.py
+    # 无 camera.roi 时的回退；直播优先用监控屏标定/desired state
+    replayLineY: 1317
+    replayRoi: 893,393,1946,1299
+    snapshotWindowSec: 2.5
+    faceEmbedModel: buffalo_l
+    bodyEmbedModel: osnet_x0_25
+    faceEmbedMode: detect
+    faceMinDetScore: 0.55
+    faceMatchThreshold: 0.35
+    bodyMatchThreshold: 0.50
+    clip:
+      enabled: true
+      localRecordingEnabled: true
+      preRollSec: 5
+      postRollSec: 3
+      trackLostSec: 2
+      sceneMergeGapSec: 10
+      ringSegmentSec: 2
+      ffmpegPath: ffmpeg
+      maxDurationSec: 300
+      autoAnalyzeYolo: true
+      autoImportBehaviorLogs: true
+      analyzePoolSize: 1
+      analyzeQueueCapacity: 20
+      analyzeTimeoutSec: 900
+    live:
+      targetDetectFps: 3
+      yoloImgsz: 640
+      yoloConf: 0.20
+      enterInferMargin: 80
+      exitInferMargin: 80
+      grabFlushFrames: 5
+      rtspBufferSize: 1
+      eventCooldownSec: 2
+      # 与本地一致：直播不实时追脸入库，靠切片+离线分析写行为日志
+      eventIngestEnabled: false
+      streamOpenTimeoutSec: 90
+      cloudStreamOpenTimeoutSec: 180
+      rtspOpenTimeoutSec: 90
+      cloudOpenTimeoutSec: 150
+      ingestCorePoolSize: 2
+      ingestMaxPoolSize: 4
+      ingestQueueCapacity: 30
+      ingestDedupeMs: 1500
+      enterFaceHuntMaxSec: 10
+      enterFaceGraceSec: 4
+      ezvizCloudProtocol: 2
+      ezvizCloudQuality: 1
+      lanRtspUsername: admin
+      lanRtspPort: 554
+      lanRtspStreamPath: /h264/ch1/main/av_stream
+      go2rtcBaseUrl: ${GO2RTC_BASE_URL:http://127.0.0.1:1984}
+      go2rtcPublicBaseUrl: ${GO2RTC_PUBLIC_BASE_URL:http://127.0.0.1:1984}
+      go2rtcRtspBaseUrl: ${GO2RTC_RTSP_BASE_URL:rtsp://127.0.0.1:8554}
+      ezvizHlsProtocol: 2
+      ezvizStreamExpireSec: 3600
+      autoRestartEnabled: true
+      restartBackoffSec: 3
+      restartBackoffMaxSec: 60
+      resumeOnBoot: true
+      frameReconnectIdleSec: 15
+      heartbeatTimeoutSec: 180
+    analysis:
+      enabled: true
+      autoRun: true
+      timeoutSec: 300
+      prompt: 当前监控视角在实验室内部、朝门外拍摄。人物推开向蓝色大门外走（离开实验室）=出门，打开蓝色大门向里走（进入实验室）=进门。往左走是进入集训室，往右走是进入会议室。请分析这段监控视频，只返回JSON对象，字段：summary（用一两句话概括画面中有谁、是进门还是出门、在做什么）、personCount（画面中人数，整数）。不要返回其他字段。
+      videoFps: 2.0
+      maxFrameCount: 10
+      middleWindowRatio: 0.6
+      eventPaddingSec: 1.5
+      frameWidth: 960
+      maxBase64Bytes: 524288
+      models:
+        - enabled: true
+          modelKey: qwen3.7-plus
+          modelName: qwen3.7-plus
+          baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+          apiKey: ${DASHSCOPE_API_KEY}

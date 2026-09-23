@@ -77,21 +77,14 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     /** 任务映射表，key 为任务 ID，value 为任务状态（线程安全） */
     private final Map<String, LiveTaskState> taskMap = new ConcurrentHashMap<>();
 
-    /** 当前活跃任务 ID，同一时间只允许一个直播识别任务运行（volatile 保证可见性） */
-    private volatile String activeTaskId;
+    /**
+     * 每台摄像头一个控制块，支持多摄像头并行识别。
+     * key = cameraId，value = 该摄像头的活跃任务/期望状态/重启/心跳等。
+     */
+    private final Map<Long, CamCtrl> cameras = new ConcurrentHashMap<>();
 
-    /** 是否期望识别持续运行（人工停止后为 false） */
-    private final AtomicBoolean desiredRunning = new AtomicBoolean(false);
-
-    /** 用户/替换任务请求停止，抑制本次退出触发的自动重启 */
-    private final AtomicBoolean stopRequested = new AtomicBoolean(false);
-
-    /** 最近一次期望启动参数（用于自动重启与开机续跑） */
-    private final AtomicReference<PresenceLiveStartBo> desiredStartBo = new AtomicReference<>();
-
-    private final AtomicInteger restartAttempt = new AtomicInteger(0);
-
-    private final AtomicLong lastHeartbeatMs = new AtomicLong(0L);
+    /** 期望状态文件读写锁（多摄像头共用一个 JSON 文件） */
+    private final Object desiredFileLock = new Object();
 
     private final ScheduledExecutorService supervisor =
             Executors.newSingleThreadScheduledExecutor(r ->
@@ -101,9 +94,48 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                 return t;
             });
 
-    private volatile ScheduledFuture<?> pendingRestart;
-
     private volatile ScheduledFuture<?> watchdogFuture;
+
+    /**
+     * 单台摄像头的直播识别控制块：活跃任务、期望运行、自动重启、心跳等均按摄像头隔离。
+     */
+    private static class CamCtrl
+    {
+        private final Long cameraId;
+        /** 当前活跃任务 ID（该摄像头同一时刻只跑一个 worker） */
+        private volatile String activeTaskId;
+        /** 是否期望识别持续运行（人工停止后为 false） */
+        private final AtomicBoolean desiredRunning = new AtomicBoolean(false);
+        /** 用户/替换任务请求停止，抑制本次退出触发的自动重启 */
+        private final AtomicBoolean stopRequested = new AtomicBoolean(false);
+        /** 最近一次期望启动参数（用于自动重启与开机续跑） */
+        private final AtomicReference<PresenceLiveStartBo> desiredStartBo = new AtomicReference<>();
+        private final AtomicInteger restartAttempt = new AtomicInteger(0);
+        private final AtomicLong lastHeartbeatMs = new AtomicLong(0L);
+        private volatile ScheduledFuture<?> pendingRestart;
+
+        private CamCtrl(Long cameraId)
+        {
+            this.cameraId = cameraId;
+        }
+    }
+
+    /** 取（或创建）指定摄像头的控制块。 */
+    private CamCtrl ctrl(Long cameraId)
+    {
+        return cameras.computeIfAbsent(cameraId, CamCtrl::new);
+    }
+
+    /** 按任务 ID 找到其所属摄像头的控制块；找不到返回 null。 */
+    private CamCtrl ctrlOfTask(String taskId)
+    {
+        LiveTaskState state = taskMap.get(taskId);
+        if (state == null || state.cameraId == null)
+        {
+            return null;
+        }
+        return cameras.get(state.cameraId);
+    }
 
     @Autowired
     private PresenceIngestProperties ingestProperties;
@@ -123,13 +155,8 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         applyCameraFromBo(bo);
         // 1. 参数校验
         validateStartBo(bo);
-        // 2. 保证同时只有一个直播任务：先停掉旧任务（不清除期望状态，由本次 start 覆盖）
-        stopRequested.set(true);
-        cancelPendingRestart();
-        stopActiveProcessOnly();
-        // 清掉上次 JVM 异常退出留下的孤儿 Python，避免同一摄像头双开导致重复录像
-        killOrphanLiveWorkers("before-start");
 
+        // 2. 先解析出 cameraId，得到本摄像头的控制块（多摄像头并行，互不影响）
         int channelNo = bo.getChannelNo() == null || bo.getChannelNo() < 1 ? 1 : bo.getChannelNo();
         Long cameraId = bo.getCameraId();
         if (cameraId == null)
@@ -138,11 +165,19 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                     "监控点位-" + bo.getDeviceSerial());
             bo.setCameraId(cameraId);
         }
+        CamCtrl cc = ctrl(cameraId);
+
+        // 3. 只停掉「本摄像头」的旧任务（不清除期望状态，由本次 start 覆盖）
+        cc.stopRequested.set(true);
+        cancelPendingRestart(cc);
+        stopActiveProcessOnly(cc);
+        // 清掉本摄像头残留的孤儿 Python（按 cameraId 精确匹配，绝不误杀其它摄像头）
+        killOrphanLiveWorkers(cameraId, null, "before-start");
 
         com.ruoyi.system.domain.vo.CameraConfigVo cameraConfig = cameraService.getCameraConfig(cameraId);
         mergeCameraConfigIntoBo(bo, cameraConfig);
 
-        // 3. 归一化拉流模式，解析拉流地址和协议
+        // 4. 归一化拉流模式，解析拉流地址和协议
         String streamMode = normalizeStreamMode(bo.getStreamMode());
         bo.setStreamMode(streamMode);
         boolean lanRtsp = PresenceLiveStartBo.STREAM_LAN_RTSP.equals(streamMode);
@@ -151,20 +186,20 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         String streamUrl = lanPreviewService.ensureLocalRtsp(bo);
         String streamProtocol = resolveStreamProtocol(streamUrl, lanRtsp);
 
-        // 4. 持久化期望运行状态，供崩溃自动重启 / 开机续跑
+        // 5. 持久化期望运行状态，供崩溃自动重启 / 开机续跑
         saveDesiredState(bo);
-        desiredStartBo.set(copyStartBo(bo));
-        desiredRunning.set(true);
-        stopRequested.set(false);
+        cc.desiredStartBo.set(copyStartBo(bo));
+        cc.desiredRunning.set(true);
+        cc.stopRequested.set(false);
         ensureWatchdogStarted();
 
-        // 5. 创建任务状态记录（清理历史已结束任务，避免内存堆积）
+        // 6. 创建任务状态记录（清理历史已结束任务，避免内存堆积）
         purgeFinishedTasks();
         String taskId = "live_" + IdUtils.fastSimpleUUID();
         LiveTaskState state = new LiveTaskState(taskId, cameraId, bo.getDeviceSerial(), streamMode, streamProtocol);
         taskMap.put(taskId, state);
-        activeTaskId = taskId;
-        lastHeartbeatMs.set(System.currentTimeMillis());
+        cc.activeTaskId = taskId;
+        cc.lastHeartbeatMs.set(System.currentTimeMillis());
 
         try
         {
@@ -220,47 +255,88 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         {
             throw new IllegalArgumentException("taskId 不能为空");
         }
-        // 开机续跑占位任务：直接清除期望状态
-        if ("pending_resume".equals(taskId))
+        // 开机续跑占位任务：pending_resume 或 pending_resume_<cameraId>
+        if (taskId.startsWith("pending_resume"))
         {
-            stopRequested.set(true);
-            desiredRunning.set(false);
-            clearDesiredState();
-            cancelPendingRestart();
-            restartAttempt.set(0);
+            Long camId = parsePendingResumeCameraId(taskId);
+            if (camId != null)
+            {
+                stopCamera(ctrl(camId));
+            }
+            else
+            {
+                // 未带 cameraId：停掉所有摄像头的期望运行
+                for (CamCtrl cc : cameras.values())
+                {
+                    stopCamera(cc);
+                }
+            }
             PresenceLiveTaskVo vo = new PresenceLiveTaskVo();
             vo.setTaskId(taskId);
             vo.setStatus("stopped");
             vo.setMessage("直播识别已停止");
+            if (camId != null)
+            {
+                vo.setCameraId(camId);
+            }
             return vo;
         }
         LiveTaskState state = taskMap.get(taskId);
         if (state == null)
         {
-            // 即使任务已不在内存，也清除期望状态，避免开机又拉起
-            clearDesiredState();
-            desiredRunning.set(false);
-            stopRequested.set(true);
-            cancelPendingRestart();
             return buildNotFoundTask(taskId);
         }
-        // 人工停止：清除期望运行，禁止自动重启
-        stopRequested.set(true);
-        desiredRunning.set(false);
-        clearDesiredState();
-        cancelPendingRestart();
-        restartAttempt.set(0);
+        CamCtrl cc = ctrl(state.cameraId);
+        // 人工停止：清除期望运行，禁止自动重启（仅本摄像头）
+        cc.stopRequested.set(true);
+        cc.desiredRunning.set(false);
+        clearDesiredState(state.cameraId);
+        cancelPendingRestart(cc);
+        cc.restartAttempt.set(0);
         // 强制终止子进程，更新状态
         destroyProcess(state);
         state.status = "stopped";
         state.message = "直播识别已停止";
         state.finishedAt = nowText();
         // 清除活跃任务标记
-        if (taskId.equals(activeTaskId))
+        if (taskId.equals(cc.activeTaskId))
         {
-            activeTaskId = null;
+            cc.activeTaskId = null;
         }
         return state.toVo();
+    }
+
+    /** 停止某摄像头的期望运行并清理其活跃进程（用于人工停止/占位任务停止）。 */
+    private void stopCamera(CamCtrl cc)
+    {
+        if (cc == null)
+        {
+            return;
+        }
+        cc.stopRequested.set(true);
+        cc.desiredRunning.set(false);
+        clearDesiredState(cc.cameraId);
+        cancelPendingRestart(cc);
+        cc.restartAttempt.set(0);
+        stopActiveProcessOnly(cc);
+    }
+
+    /** 从 pending_resume[_<cameraId>] 解析 cameraId，无后缀返回 null。 */
+    private Long parsePendingResumeCameraId(String taskId)
+    {
+        String prefix = "pending_resume_";
+        if (taskId != null && taskId.startsWith(prefix) && taskId.length() > prefix.length())
+        {
+            try
+            {
+                return Long.valueOf(taskId.substring(prefix.length()));
+            }
+            catch (NumberFormatException ignored)
+            {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**
@@ -272,29 +348,41 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
      * @return 活跃任务视图对象，无活跃任务时返回 null
      */
     @Override
-    public PresenceLiveTaskVo getActiveTask()
+    public List<PresenceLiveTaskVo> getActiveTasks()
     {
+        List<PresenceLiveTaskVo> result = new ArrayList<>();
+        for (CamCtrl cc : cameras.values())
+        {
+            PresenceLiveTaskVo vo = activeTaskForCtrl(cc);
+            if (vo != null)
+            {
+                result.add(vo);
+            }
+        }
+        return result;
+    }
+
+    /** 计算单个摄像头当前对外可展示的活跃任务（running/starting/reconnecting 或续跑占位）。 */
+    private PresenceLiveTaskVo activeTaskForCtrl(CamCtrl cc)
+    {
+        String activeTaskId = cc.activeTaskId;
         if (StringUtils.isEmpty(activeTaskId))
         {
             // 期望仍在跑但进程空窗（等待自动重启 / 开机续跑）时，返回可展示状态
-            if (desiredRunning.get())
+            if (cc.desiredRunning.get())
             {
                 for (LiveTaskState state : taskMap.values())
                 {
+                    if (!cc.cameraId.equals(state.cameraId))
+                    {
+                        continue;
+                    }
                     if ("reconnecting".equals(state.status) || "starting".equals(state.status))
                     {
                         return state.toVo();
                     }
                 }
-                PresenceLiveStartBo bo = desiredStartBo.get();
-                if (bo == null)
-                {
-                    bo = loadDesiredState();
-                    if (bo != null)
-                    {
-                        desiredStartBo.set(bo);
-                    }
-                }
+                PresenceLiveStartBo bo = cc.desiredStartBo.get();
                 if (bo != null)
                 {
                     return buildDesiredPendingTask(bo);
@@ -316,7 +404,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     private PresenceLiveTaskVo buildDesiredPendingTask(PresenceLiveStartBo bo)
     {
         PresenceLiveTaskVo vo = new PresenceLiveTaskVo();
-        vo.setTaskId("pending_resume");
+        vo.setTaskId(bo.getCameraId() != null ? "pending_resume_" + bo.getCameraId() : "pending_resume");
         vo.setStatus("reconnecting");
         vo.setMessage("服务重启后正在自动恢复识别…");
         vo.setCameraId(bo.getCameraId());
@@ -455,18 +543,19 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     @Override
     public PresenceLiveTaskVo getTask(String taskId)
     {
-        if ("pending_resume".equals(taskId))
+        if (taskId != null && taskId.startsWith("pending_resume"))
         {
-            if (desiredRunning.get())
+            Long camId = parsePendingResumeCameraId(taskId);
+            if (camId != null)
             {
-                PresenceLiveStartBo bo = desiredStartBo.get();
-                if (bo == null)
+                CamCtrl cc = cameras.get(camId);
+                if (cc != null && cc.desiredRunning.get())
                 {
-                    bo = loadDesiredState();
-                }
-                if (bo != null)
-                {
-                    return buildDesiredPendingTask(bo);
+                    PresenceLiveStartBo bo = cc.desiredStartBo.get();
+                    if (bo != null)
+                    {
+                        return buildDesiredPendingTask(bo);
+                    }
                 }
             }
             return buildNotFoundTask(taskId);
@@ -488,11 +577,12 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                 // 进程尚未结束，忽略
             }
         }
+        CamCtrl cc = ctrl(state.cameraId);
         // 进程已退出但状态仍为 running，根据退出码判定最终状态
         if (state.exitCode != null && ("running".equals(state.status) || "starting".equals(state.status)))
         {
             // 期望续跑时由 pumpOutput / supervisor 切到 reconnecting，这里不要抢先标 failed
-            if (desiredRunning.get() && !stopRequested.get() && shouldAutoRestart(state.exitCode))
+            if (cc.desiredRunning.get() && !cc.stopRequested.get() && shouldAutoRestart(state.exitCode))
             {
                 state.status = "reconnecting";
                 state.message = "识别进程已退出，正在自动重启…";
@@ -506,9 +596,9 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                     state.message = resolveLiveFailureMessage(state.exitCode, state.logSnapshot(), state.isLanRtsp());
                 }
                 // 清理活跃任务标记
-                if (taskId.equals(activeTaskId))
+                if (taskId.equals(cc.activeTaskId))
                 {
-                    activeTaskId = null;
+                    cc.activeTaskId = null;
                 }
             }
         }
@@ -687,19 +777,19 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     }
 
     /**
-     * 停止当前活跃任务进程（不清除期望运行状态）。
+     * 停止某摄像头当前活跃任务进程（不清除期望运行状态）。
      * 用于新任务启动前的清理，以及自动重启前的换进程。
      */
-    private void stopActiveProcessOnly()
+    private void stopActiveProcessOnly(CamCtrl cc)
     {
-        if (StringUtils.isEmpty(activeTaskId))
+        if (cc == null || StringUtils.isEmpty(cc.activeTaskId))
         {
             return;
         }
-        LiveTaskState state = taskMap.get(activeTaskId);
+        LiveTaskState state = taskMap.get(cc.activeTaskId);
         if (state == null)
         {
-            activeTaskId = null;
+            cc.activeTaskId = null;
             return;
         }
         destroyProcess(state);
@@ -709,15 +799,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
             state.message = "任务已被替换";
             state.finishedAt = nowText();
         }
-        activeTaskId = null;
-    }
-
-    /**
-     * @deprecated 保留空壳避免遗漏调用；请使用 {@link #stopActiveProcessOnly()}
-     */
-    private void stopActiveIfRunning()
-    {
-        stopActiveProcessOnly();
+        cc.activeTaskId = null;
     }
 
     /**
@@ -988,6 +1070,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
      */
     private void pumpOutput(LiveTaskState state, Process process)
     {
+        CamCtrl cc = ctrl(state.cameraId);
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8)))
         {
@@ -998,7 +1081,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                 state.appendLog(line);
                 if (isHeartbeatLine(line))
                 {
-                    lastHeartbeatMs.set(System.currentTimeMillis());
+                    cc.lastHeartbeatMs.set(System.currentTimeMillis());
                     if ("running".equals(state.status) || "starting".equals(state.status))
                     {
                         // stream ready 时由 awaitStreamReady 切 running；重连日志也刷新心跳
@@ -1006,8 +1089,8 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                 }
                 if (line.contains("[live] stream ready") || line.contains("[live] reconnect ok"))
                 {
-                    lastHeartbeatMs.set(System.currentTimeMillis());
-                    restartAttempt.set(0);
+                    cc.lastHeartbeatMs.set(System.currentTimeMillis());
+                    cc.restartAttempt.set(0);
                 }
             }
         }
@@ -1033,19 +1116,20 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
 
     private void handleWorkerExit(LiveTaskState state)
     {
+        CamCtrl cc = ctrl(state.cameraId);
         Integer exitCode = state.exitCode;
-        boolean expectResume = desiredRunning.get() && !stopRequested.get() && shouldAutoRestart(exitCode);
+        boolean expectResume = cc.desiredRunning.get() && !cc.stopRequested.get() && shouldAutoRestart(exitCode);
         if (expectResume && ingestProperties.getLive().isAutoRestartEnabled())
         {
             state.status = "reconnecting";
             state.message = "识别进程已退出，正在自动重启…";
             state.finishedAt = nowText();
             state.appendLog("[supervisor] worker exited exitCode=" + exitCode + ", scheduling restart");
-            if (state.taskId.equals(activeTaskId))
+            if (state.taskId.equals(cc.activeTaskId))
             {
-                activeTaskId = null;
+                cc.activeTaskId = null;
             }
-            scheduleRestart("exit-" + exitCode);
+            scheduleRestart(cc, "exit-" + exitCode);
             return;
         }
         // 根据退出码更新任务最终状态
@@ -1058,15 +1142,15 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                 state.message = resolveLiveFailureMessage(exitCode, state.logSnapshot(), state.isLanRtsp());
             }
         }
-        if (state.taskId.equals(activeTaskId))
+        if (state.taskId.equals(cc.activeTaskId))
         {
-            activeTaskId = null;
+            cc.activeTaskId = null;
         }
         // 编码错误等不可恢复问题：停止自动续跑，避免空转
         if (exitCode != null && exitCode == EXIT_CODEC_NOT_H264)
         {
-            desiredRunning.set(false);
-            clearDesiredState();
+            cc.desiredRunning.set(false);
+            clearDesiredState(cc.cameraId);
         }
     }
 
@@ -1255,9 +1339,54 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     }
 
     /**
-     * 清理本机残留的 live_stream_worker 进程（后端异常退出时子进程可能未被带走）。
+     * 清理指定摄像头残留的 live_stream_worker 进程（按 --camera-id 精确匹配，绝不误杀其它摄像头）。
+     *
+     * @param cameraId      仅清理该摄像头的 worker
+     * @param exceptTaskId  跳过该 task 对应的进程（避免杀掉刚启动的当前任务），可为 null
      */
-    private void killOrphanLiveWorkers(String reason)
+    private void killOrphanLiveWorkers(Long cameraId, String exceptTaskId, String reason)
+    {
+        if (cameraId == null)
+        {
+            return;
+        }
+        String marker = "live_stream_worker_yolo.py";
+        String cameraToken = "--camera-id " + cameraId + " ";
+        String exceptToken = StringUtils.isEmpty(exceptTaskId) ? null : "--task-id " + exceptTaskId + " ";
+        int killed = 0;
+        try
+        {
+            for (ProcessHandle handle : ProcessHandle.allProcesses().toList())
+            {
+                String cmd = handle.info().commandLine().orElse("");
+                if (StringUtils.isEmpty(cmd) || !cmd.contains(marker))
+                {
+                    continue;
+                }
+                // 只杀本摄像头的 worker：命令行必须包含 --camera-id <id>
+                if (!cmd.contains(cameraToken))
+                {
+                    continue;
+                }
+                // 跳过当前任务对应的进程
+                if (exceptToken != null && cmd.contains(exceptToken))
+                {
+                    continue;
+                }
+                killed += destroyHandle(handle);
+            }
+        }
+        catch (Exception ex)
+        {
+            log.debug("扫描孤儿 live worker 失败: {}", ex.getMessage());
+        }
+        afterOrphanKill(killed, reason);
+    }
+
+    /**
+     * 关机时清理本机全部 live_stream_worker 进程。
+     */
+    private void killAllOrphanLiveWorkers(String reason)
     {
         String marker = "live_stream_worker_yolo.py";
         int killed = 0;
@@ -1270,25 +1399,35 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
                 {
                     continue;
                 }
-                // 不要误杀当前仍由本 JVM 托管且即将被 destroyProcess 处理的进程以外的……实际启动前应全部清掉
-                try
-                {
-                    boolean ok = handle.destroyForcibly();
-                    if (ok)
-                    {
-                        killed++;
-                        handle.onExit().orTimeout(5, TimeUnit.SECONDS).exceptionally(ex -> null);
-                    }
-                }
-                catch (Exception ignored)
-                {
-                }
+                killed += destroyHandle(handle);
             }
         }
         catch (Exception ex)
         {
             log.debug("扫描孤儿 live worker 失败: {}", ex.getMessage());
         }
+        afterOrphanKill(killed, reason);
+    }
+
+    private int destroyHandle(ProcessHandle handle)
+    {
+        try
+        {
+            boolean ok = handle.destroyForcibly();
+            if (ok)
+            {
+                handle.onExit().orTimeout(5, TimeUnit.SECONDS).exceptionally(ex -> null);
+                return 1;
+            }
+        }
+        catch (Exception ignored)
+        {
+        }
+        return 0;
+    }
+
+    private void afterOrphanKill(int killed, String reason)
+    {
         if (killed > 0)
         {
             log.warn("已清理 {} 个残留 live_stream_worker 进程 reason={}", killed, reason);
@@ -1307,10 +1446,13 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
     public void shutdownSupervisor()
     {
         // 关机时只杀进程，保留 desired state，便于下次开机续跑
-        stopRequested.set(true);
-        cancelPendingRestart();
-        stopActiveProcessOnly();
-        killOrphanLiveWorkers("jvm-shutdown");
+        for (CamCtrl cc : cameras.values())
+        {
+            cc.stopRequested.set(true);
+            cancelPendingRestart(cc);
+            stopActiveProcessOnly(cc);
+        }
+        killAllOrphanLiveWorkers("jvm-shutdown");
         ScheduledFuture<?> wd = watchdogFuture;
         if (wd != null)
         {
@@ -1324,26 +1466,27 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
      */
     private void markTaskFailed(String taskId, LiveTaskState state, String message)
     {
+        CamCtrl cc = ctrl(state.cameraId);
         destroyProcess(state);
-        if (desiredRunning.get() && !stopRequested.get() && ingestProperties.getLive().isAutoRestartEnabled())
+        if (cc.desiredRunning.get() && !cc.stopRequested.get() && ingestProperties.getLive().isAutoRestartEnabled())
         {
             state.status = "reconnecting";
             state.message = message + "（将自动重启）";
             state.finishedAt = nowText();
             state.appendLog("[supervisor] start failed: " + message);
-            if (taskId.equals(activeTaskId))
+            if (taskId.equals(cc.activeTaskId))
             {
-                activeTaskId = null;
+                cc.activeTaskId = null;
             }
-            scheduleRestart("start-failed");
+            scheduleRestart(cc, "start-failed");
             return;
         }
         state.status = "failed";
         state.message = message;
         state.finishedAt = nowText();
-        if (taskId.equals(activeTaskId))
+        if (taskId.equals(cc.activeTaskId))
         {
-            activeTaskId = null;
+            cc.activeTaskId = null;
         }
     }
 
@@ -1352,30 +1495,33 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
      */
     private void cleanupTask(String taskId, LiveTaskState state)
     {
+        CamCtrl cc = ctrl(state.cameraId);
         destroyProcess(state);
         taskMap.remove(taskId);
-        if (taskId.equals(activeTaskId))
+        if (taskId.equals(cc.activeTaskId))
         {
-            activeTaskId = null;
+            cc.activeTaskId = null;
         }
         // 同步启动失败：若已写入期望状态，仍安排重启
-        if (desiredRunning.get() && !stopRequested.get() && ingestProperties.getLive().isAutoRestartEnabled())
+        if (cc.desiredRunning.get() && !cc.stopRequested.get() && ingestProperties.getLive().isAutoRestartEnabled())
         {
-            scheduleRestart("cleanup-start-failed");
+            scheduleRestart(cc, "cleanup-start-failed");
         }
     }
 
-    /** 移除已结束的历史任务，保留当前活跃任务与最近 reconnecting。 */
+    /** 移除已结束的历史任务，保留各摄像头当前活跃任务与最近 reconnecting。 */
     private void purgeFinishedTasks()
     {
         taskMap.entrySet().removeIf(entry ->
         {
-            if (entry.getKey().equals(activeTaskId))
+            LiveTaskState st = entry.getValue();
+            CamCtrl cc = st.cameraId == null ? null : cameras.get(st.cameraId);
+            if (cc != null && entry.getKey().equals(cc.activeTaskId))
             {
                 return false;
             }
-            String status = entry.getValue().status;
-            if ("reconnecting".equals(status) && desiredRunning.get())
+            String status = st.status;
+            if ("reconnecting".equals(status) && cc != null && cc.desiredRunning.get())
             {
                 return false;
             }
@@ -1388,9 +1534,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         PresenceLiveTaskVo vo = new PresenceLiveTaskVo();
         vo.setTaskId(taskId);
         vo.setStatus("not_found");
-        vo.setMessage(desiredRunning.get()
-                ? "任务记录已过期，系统正在自动恢复识别"
-                : "任务不存在或已过期（可能服务已重启），请重新点击「开始识别」");
+        vo.setMessage("任务不存在或已过期（可能服务已重启），请重新点击「开始识别」");
         return vo;
     }
 
@@ -1415,36 +1559,44 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         {
             return;
         }
-        PresenceLiveStartBo bo = loadDesiredState();
-        if (bo == null)
+        List<PresenceLiveStartBo> desired = loadAllDesiredStates();
+        if (desired.isEmpty())
         {
             log.info("开机续跑：未找到期望运行的直播识别状态，跳过");
             return;
         }
-        desiredStartBo.set(bo);
-        desiredRunning.set(true);
-        stopRequested.set(false);
         ensureWatchdogStarted();
-        log.info("检测到期望运行的直播识别任务，将自动恢复 cameraId={} serial={}",
-                bo.getCameraId(), bo.getDeviceSerial());
-        // 略等 go2rtc 就绪；前端可通过 /live/active 立刻看到 reconnecting
-        supervisor.schedule(() ->
+        for (PresenceLiveStartBo bo : desired)
         {
-            try
+            if (bo.getCameraId() == null)
             {
-                if (!desiredRunning.get() || stopRequested.get())
+                continue;
+            }
+            CamCtrl cc = ctrl(bo.getCameraId());
+            cc.desiredStartBo.set(bo);
+            cc.desiredRunning.set(true);
+            cc.stopRequested.set(false);
+            log.info("检测到期望运行的直播识别任务，将自动恢复 cameraId={} serial={}",
+                    bo.getCameraId(), bo.getDeviceSerial());
+            // 略等 go2rtc 就绪；前端可通过 /live/active 立刻看到 reconnecting
+            supervisor.schedule(() ->
+            {
+                try
                 {
-                    return;
+                    if (!cc.desiredRunning.get() || cc.stopRequested.get())
+                    {
+                        return;
+                    }
+                    startLive(copyStartBo(bo));
+                    log.info("开机自动恢复直播识别成功 cameraId={}", bo.getCameraId());
                 }
-                startLive(copyStartBo(bo));
-                log.info("开机自动恢复直播识别成功 cameraId={}", bo.getCameraId());
-            }
-            catch (Exception ex)
-            {
-                log.warn("开机自动恢复直播识别失败: {}", ex.getMessage());
-                scheduleRestart("boot-resume-failed");
-            }
-        }, 3, TimeUnit.SECONDS);
+                catch (Exception ex)
+                {
+                    log.warn("开机自动恢复直播识别失败: {}", ex.getMessage());
+                    scheduleRestart(cc, "boot-resume-failed");
+                }
+            }, 3, TimeUnit.SECONDS);
+        }
     }
 
     private void ensureWatchdogStarted()
@@ -1456,67 +1608,76 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         watchdogFuture = supervisor.scheduleWithFixedDelay(this::watchdogTick, 20, 20, TimeUnit.SECONDS);
     }
 
+    /** 看门狗：遍历所有摄像头，各自独立做心跳超时/掉线检测与自动重启。 */
     private void watchdogTick()
     {
-        try
+        for (CamCtrl cc : cameras.values())
         {
-            if (!desiredRunning.get() || stopRequested.get())
+            try
             {
-                return;
+                watchdogTickForCamera(cc);
             }
-            PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
-            if (!live.isAutoRestartEnabled())
+            catch (Exception ex)
             {
-                return;
+                log.debug("live watchdog tick error cameraId={}: {}", cc.cameraId, ex.getMessage());
             }
-            String taskId = activeTaskId;
-            if (StringUtils.isEmpty(taskId))
-            {
-                if (pendingRestart == null || pendingRestart.isDone())
-                {
-                    scheduleRestart("watchdog-no-active");
-                }
-                return;
-            }
-            LiveTaskState state = taskMap.get(taskId);
-            if (state == null)
-            {
-                scheduleRestart("watchdog-missing-state");
-                return;
-            }
-            if ("starting".equals(state.status) || "reconnecting".equals(state.status))
-            {
-                return;
-            }
-            if (!"running".equals(state.status))
-            {
-                return;
-            }
-            long timeoutMs = (long) Math.max(60.0, live.getHeartbeatTimeoutSec()) * 1000L;
-            long last = lastHeartbeatMs.get();
-            if (last <= 0L)
-            {
-                return;
-            }
-            long idle = System.currentTimeMillis() - last;
-            if (idle <= timeoutMs)
-            {
-                return;
-            }
-            state.appendLog("[supervisor] heartbeat timeout idleSec=" + (idle / 1000)
-                    + ", killing worker for restart");
-            log.warn("直播识别心跳超时 {}s，强制重启 worker taskId={}", idle / 1000, taskId);
-            destroyProcess(state);
-        }
-        catch (Exception ex)
-        {
-            log.debug("live watchdog tick error: {}", ex.getMessage());
         }
     }
 
-    private synchronized void scheduleRestart(String reason)
+    private void watchdogTickForCamera(CamCtrl cc)
     {
-        if (!desiredRunning.get() || stopRequested.get())
+        if (!cc.desiredRunning.get() || cc.stopRequested.get())
+        {
+            return;
+        }
+        PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
+        if (!live.isAutoRestartEnabled())
+        {
+            return;
+        }
+        String taskId = cc.activeTaskId;
+        if (StringUtils.isEmpty(taskId))
+        {
+            if (cc.pendingRestart == null || cc.pendingRestart.isDone())
+            {
+                scheduleRestart(cc, "watchdog-no-active");
+            }
+            return;
+        }
+        LiveTaskState state = taskMap.get(taskId);
+        if (state == null)
+        {
+            scheduleRestart(cc, "watchdog-missing-state");
+            return;
+        }
+        if ("starting".equals(state.status) || "reconnecting".equals(state.status))
+        {
+            return;
+        }
+        if (!"running".equals(state.status))
+        {
+            return;
+        }
+        long timeoutMs = (long) Math.max(60.0, live.getHeartbeatTimeoutSec()) * 1000L;
+        long last = cc.lastHeartbeatMs.get();
+        if (last <= 0L)
+        {
+            return;
+        }
+        long idle = System.currentTimeMillis() - last;
+        if (idle <= timeoutMs)
+        {
+            return;
+        }
+        state.appendLog("[supervisor] heartbeat timeout idleSec=" + (idle / 1000)
+                + ", killing worker for restart");
+        log.warn("直播识别心跳超时 {}s，强制重启 worker cameraId={} taskId={}", idle / 1000, cc.cameraId, taskId);
+        destroyProcess(state);
+    }
+
+    private synchronized void scheduleRestart(CamCtrl cc, String reason)
+    {
+        if (cc == null || !cc.desiredRunning.get() || cc.stopRequested.get())
         {
             return;
         }
@@ -1524,36 +1685,29 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         {
             return;
         }
-        PresenceLiveStartBo bo = desiredStartBo.get();
+        PresenceLiveStartBo bo = cc.desiredStartBo.get();
         if (bo == null)
         {
-            bo = loadDesiredState();
-            if (bo != null)
-            {
-                desiredStartBo.set(bo);
-            }
-        }
-        if (bo == null)
-        {
-            log.warn("无法自动重启直播识别：缺少期望启动参数 reason={}", reason);
+            log.warn("无法自动重启直播识别：缺少期望启动参数 cameraId={} reason={}", cc.cameraId, reason);
             return;
         }
-        if (pendingRestart != null && !pendingRestart.isDone())
+        if (cc.pendingRestart != null && !cc.pendingRestart.isDone())
         {
             return;
         }
-        int attempt = restartAttempt.incrementAndGet();
+        int attempt = cc.restartAttempt.incrementAndGet();
         PresenceIngestProperties.LiveIngest live = ingestProperties.getLive();
         double base = Math.max(1.0, live.getRestartBackoffSec());
         double max = Math.max(base, live.getRestartBackoffMaxSec());
         long delaySec = (long) Math.min(max, base * Math.pow(2, Math.min(attempt - 1, 6)));
         PresenceLiveStartBo restartBo = copyStartBo(bo);
-        log.info("调度直播识别自动重启 attempt={} delaySec={} reason={}", attempt, delaySec, reason);
-        pendingRestart = supervisor.schedule(() ->
+        log.info("调度直播识别自动重启 cameraId={} attempt={} delaySec={} reason={}",
+                cc.cameraId, attempt, delaySec, reason);
+        cc.pendingRestart = supervisor.schedule(() ->
         {
             try
             {
-                if (!desiredRunning.get() || stopRequested.get())
+                if (!cc.desiredRunning.get() || cc.stopRequested.get())
                 {
                     return;
                 }
@@ -1562,18 +1716,22 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
             catch (Exception ex)
             {
                 log.warn("自动重启直播识别失败: {}", ex.getMessage());
-                scheduleRestart("restart-failed");
+                scheduleRestart(cc, "restart-failed");
             }
         }, delaySec, TimeUnit.SECONDS);
     }
 
-    private void cancelPendingRestart()
+    private void cancelPendingRestart(CamCtrl cc)
     {
-        ScheduledFuture<?> future = pendingRestart;
+        if (cc == null)
+        {
+            return;
+        }
+        ScheduledFuture<?> future = cc.pendingRestart;
         if (future != null)
         {
             future.cancel(false);
-            pendingRestart = null;
+            cc.pendingRestart = null;
         }
     }
 
@@ -1583,80 +1741,159 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
         return Paths.get(root, DESIRED_STATE_RELATIVE);
     }
 
-    private void saveDesiredState(PresenceLiveStartBo bo)
+    private JSONObject boToJson(PresenceLiveStartBo bo)
     {
-        try
-        {
-            Path path = desiredStatePath();
-            Files.createDirectories(path.getParent());
-            JSONObject json = new JSONObject();
-            json.put("cameraId", bo.getCameraId());
-            json.put("deviceSerial", bo.getDeviceSerial());
-            json.put("channelNo", bo.getChannelNo());
-            json.put("streamMode", bo.getStreamMode());
-            json.put("lineY", bo.getLineY());
-            json.put("roi", bo.getRoi());
-            json.put("refWidth", bo.getRefWidth());
-            json.put("refHeight", bo.getRefHeight());
-            json.put("validCode", bo.getValidCode());
-            json.put("savedAt", nowText());
-            Files.writeString(path, json.toJSONString(), StandardCharsets.UTF_8);
-        }
-        catch (Exception ex)
-        {
-            log.warn("保存直播期望状态失败: {}", ex.getMessage());
-        }
+        JSONObject json = new JSONObject();
+        json.put("cameraId", bo.getCameraId());
+        json.put("deviceSerial", bo.getDeviceSerial());
+        json.put("channelNo", bo.getChannelNo());
+        json.put("streamMode", bo.getStreamMode());
+        json.put("lineY", bo.getLineY());
+        json.put("roi", bo.getRoi());
+        json.put("refWidth", bo.getRefWidth());
+        json.put("refHeight", bo.getRefHeight());
+        json.put("validCode", bo.getValidCode());
+        json.put("savedAt", nowText());
+        return json;
     }
 
-    private void clearDesiredState()
+    private PresenceLiveStartBo jsonToBo(JSONObject json)
     {
-        desiredStartBo.set(null);
-        try
+        if (json == null)
         {
-            Files.deleteIfExists(desiredStatePath());
+            return null;
         }
-        catch (Exception ex)
+        PresenceLiveStartBo bo = new PresenceLiveStartBo();
+        bo.setCameraId(json.getLong("cameraId"));
+        bo.setDeviceSerial(json.getString("deviceSerial"));
+        bo.setChannelNo(json.getInteger("channelNo"));
+        bo.setStreamMode(json.getString("streamMode"));
+        bo.setLineY(json.getInteger("lineY"));
+        bo.setRoi(json.getString("roi"));
+        bo.setRefWidth(json.getInteger("refWidth"));
+        bo.setRefHeight(json.getInteger("refHeight"));
+        bo.setValidCode(json.getString("validCode"));
+        if (bo.getCameraId() == null && StringUtils.isEmpty(bo.getDeviceSerial()))
         {
-            log.debug("清除直播期望状态失败: {}", ex.getMessage());
+            return null;
         }
+        return bo;
     }
 
-    private PresenceLiveStartBo loadDesiredState()
+    /** 读取期望状态文件（多摄像头 map，key=cameraId 字符串）。兼容旧的单对象格式。 */
+    private JSONObject readDesiredMap()
     {
         try
         {
             Path path = desiredStatePath();
             if (!Files.isRegularFile(path))
             {
-                return null;
+                return new JSONObject();
             }
             String text = Files.readString(path, StandardCharsets.UTF_8);
             JSONObject json = JSON.parseObject(text);
             if (json == null)
             {
-                return null;
+                return new JSONObject();
             }
-            PresenceLiveStartBo bo = new PresenceLiveStartBo();
-            bo.setCameraId(json.getLong("cameraId"));
-            bo.setDeviceSerial(json.getString("deviceSerial"));
-            bo.setChannelNo(json.getInteger("channelNo"));
-            bo.setStreamMode(json.getString("streamMode"));
-            bo.setLineY(json.getInteger("lineY"));
-            bo.setRoi(json.getString("roi"));
-            bo.setRefWidth(json.getInteger("refWidth"));
-            bo.setRefHeight(json.getInteger("refHeight"));
-            bo.setValidCode(json.getString("validCode"));
-            if (bo.getCameraId() == null && StringUtils.isEmpty(bo.getDeviceSerial()))
+            // 兼容旧格式：单个对象（含 cameraId 字段）→ 转成 map
+            if (json.containsKey("cameraId") || json.containsKey("deviceSerial"))
             {
-                return null;
+                JSONObject map = new JSONObject();
+                Long camId = json.getLong("cameraId");
+                if (camId != null)
+                {
+                    map.put(String.valueOf(camId), json);
+                }
+                return map;
             }
-            return bo;
+            return json;
         }
         catch (Exception ex)
         {
             log.warn("读取直播期望状态失败: {}", ex.getMessage());
-            return null;
+            return new JSONObject();
         }
+    }
+
+    private void saveDesiredState(PresenceLiveStartBo bo)
+    {
+        if (bo == null || bo.getCameraId() == null)
+        {
+            return;
+        }
+        synchronized (desiredFileLock)
+        {
+            try
+            {
+                Path path = desiredStatePath();
+                Files.createDirectories(path.getParent());
+                JSONObject map = readDesiredMap();
+                map.put(String.valueOf(bo.getCameraId()), boToJson(bo));
+                Files.writeString(path, map.toJSONString(), StandardCharsets.UTF_8);
+            }
+            catch (Exception ex)
+            {
+                log.warn("保存直播期望状态失败: {}", ex.getMessage());
+            }
+        }
+    }
+
+    private void clearDesiredState(Long cameraId)
+    {
+        if (cameraId != null)
+        {
+            CamCtrl cc = cameras.get(cameraId);
+            if (cc != null)
+            {
+                cc.desiredStartBo.set(null);
+            }
+        }
+        synchronized (desiredFileLock)
+        {
+            try
+            {
+                Path path = desiredStatePath();
+                if (!Files.isRegularFile(path))
+                {
+                    return;
+                }
+                JSONObject map = readDesiredMap();
+                if (cameraId != null)
+                {
+                    map.remove(String.valueOf(cameraId));
+                }
+                if (map.isEmpty())
+                {
+                    Files.deleteIfExists(path);
+                }
+                else
+                {
+                    Files.writeString(path, map.toJSONString(), StandardCharsets.UTF_8);
+                }
+            }
+            catch (Exception ex)
+            {
+                log.debug("清除直播期望状态失败: {}", ex.getMessage());
+            }
+        }
+    }
+
+    /** 读取所有摄像头的期望启动参数（开机续跑用）。 */
+    private List<PresenceLiveStartBo> loadAllDesiredStates()
+    {
+        List<PresenceLiveStartBo> result = new ArrayList<>();
+        JSONObject map = readDesiredMap();
+        for (String key : map.keySet())
+        {
+            JSONObject item = map.getJSONObject(key);
+            PresenceLiveStartBo bo = jsonToBo(item);
+            if (bo != null)
+            {
+                result.add(bo);
+            }
+        }
+        return result;
     }
 
     private PresenceLiveStartBo copyStartBo(PresenceLiveStartBo src)

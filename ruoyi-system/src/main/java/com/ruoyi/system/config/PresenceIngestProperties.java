@@ -642,6 +642,18 @@ public class PresenceIngestProperties
         /** YOLO 分析成功后自动导入行为日志 */
         private boolean autoImportBehaviorLogs = true;
 
+        /**
+         * 离线 YOLO 分析专用线程池大小（建议 1，避免与直播抢满 CPU）。
+         * 与 RuoYi 公共 threadPoolTaskExecutor 隔离，防止分析卡死拖垮其它异步任务。
+         */
+        private int analyzePoolSize = 1;
+
+        /** 等待分析的队列长度；满则拒绝新任务并打日志，避免无限堆积 */
+        private int analyzeQueueCapacity = 20;
+
+        /** 单次 YOLO 分析超时（秒）；超时强制杀掉 Python 进程并释放线程 */
+        private int analyzeTimeoutSec = 900;
+
         /** Ezviz cloud recording address format. MP4 is preferred for download and analysis. */
         private String ezvizRecordingFormat = "MP4";
 
@@ -767,6 +779,36 @@ public class PresenceIngestProperties
             this.autoImportBehaviorLogs = autoImportBehaviorLogs;
         }
 
+        public int getAnalyzePoolSize()
+        {
+            return analyzePoolSize;
+        }
+
+        public void setAnalyzePoolSize(int analyzePoolSize)
+        {
+            this.analyzePoolSize = analyzePoolSize;
+        }
+
+        public int getAnalyzeQueueCapacity()
+        {
+            return analyzeQueueCapacity;
+        }
+
+        public void setAnalyzeQueueCapacity(int analyzeQueueCapacity)
+        {
+            this.analyzeQueueCapacity = analyzeQueueCapacity;
+        }
+
+        public int getAnalyzeTimeoutSec()
+        {
+            return analyzeTimeoutSec;
+        }
+
+        public void setAnalyzeTimeoutSec(int analyzeTimeoutSec)
+        {
+            this.analyzeTimeoutSec = analyzeTimeoutSec;
+        }
+
         public String getEzvizRecordingFormat()
         {
             return ezvizRecordingFormat;
@@ -848,6 +890,9 @@ public class PresenceIngestProperties
 
         private String prompt = "当前监控视角在实验室内部、朝门外拍摄。人物向外走（离开实验室）=出门，向里走（进入实验室）=进门。请分析这段监控视频，只返回JSON对象，字段：summary（用一两句话概括画面中有谁、是进门还是出门、在做什么）、personCount（画面中人数，整数）。不要返回其他字段。";
 
+        /** 门外摄像头（exterior）AI 提示词，默认是进门提示词的视角对调 */
+        private String exitPrompt = "当前监控视角在实验室外部、朝门内拍摄。人物向里走（进入实验室）=进门，向外走（离开实验室）=出门。请分析这段监控视频，只返回JSON对象，字段：summary（用一两句话概括画面中有谁、是进门还是出门、在做什么）、personCount（画面中人数，整数）。不要返回其他字段。";
+
         /** 直接传视频文件时的抽帧频率（传给模型的 fps 参数） */
         private double videoFps = 2.0;
 
@@ -911,6 +956,16 @@ public class PresenceIngestProperties
         public void setPrompt(String prompt)
         {
             this.prompt = prompt;
+        }
+
+        public String getExitPrompt()
+        {
+            return exitPrompt;
+        }
+
+        public void setExitPrompt(String exitPrompt)
+        {
+            this.exitPrompt = exitPrompt;
         }
 
         public double getVideoFps()

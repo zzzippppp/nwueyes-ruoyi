@@ -70,6 +70,8 @@ import com.ruoyi.system.domain.vo.BehaviorLogItemVo;
 
 import com.ruoyi.system.domain.vo.AiAnalysisResultVo;
 
+import com.ruoyi.system.domain.vo.CameraConfigVo;
+
 import com.ruoyi.system.domain.vo.CaptureTrackEmbedVo;
 
 import com.ruoyi.system.domain.vo.EmbeddingVectorVo;
@@ -85,6 +87,8 @@ import com.ruoyi.system.mapper.BehaviorLogMapper;
 import com.ruoyi.system.mapper.VideoAnalysisMapper;
 
 import com.ruoyi.system.service.IBehaviorLogService;
+
+import com.ruoyi.system.service.ICameraService;
 
 import com.ruoyi.system.service.IPresenceEmbedService;
 
@@ -163,6 +167,10 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
     @Autowired
 
     private IPresenceEmbedService presenceEmbedService;
+
+    @Autowired
+
+    private ICameraService cameraService;
 
 
 
@@ -669,19 +677,13 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
     {
 
-        if (StringUtils.isEmpty(faceImageUrl) && StringUtils.isEmpty(bodyImageUrl))
+        // 体态已废除：质量只看是否有人脸图
+
+        if (StringUtils.isEmpty(faceImageUrl))
 
         {
 
             return "missing";
-
-        }
-
-        if (StringUtils.isEmpty(faceImageUrl) && !StringUtils.isEmpty(bodyImageUrl))
-
-        {
-
-            return "low";
 
         }
 
@@ -829,6 +831,13 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
             videoBaseTime = resolveVideoBaseTime(sourceVideo, task.getStartedAt());
         }
 
+        // 门外摄像头：不看门线，逐脸与库中在场者比对，命中即记离场（不走 enter/exit/pass 事件流）
+        String cameraRole = resolveCameraRole(cameraId);
+        if ("exterior".equals(cameraRole))
+        {
+            return importExteriorExit(bo, cameraId, root, videoBaseTime, aiSummary);
+        }
+
         List<JsonNode> rawEvents = new ArrayList<>();
         for (Iterator<JsonNode> it = eventsNode.elements(); it.hasNext();)
         {
@@ -838,7 +847,8 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
         Map<Integer, List<Double>> faceEmb = new HashMap<>();
         try
         {
-            AnalyzeEmbedResultVo embedResult = presenceEmbedService.embedAnalyzeCaptures(bo.getTaskId());
+            // 只做人脸：体态向量已废除
+            AnalyzeEmbedResultVo embedResult = presenceEmbedService.embedAnalyzeCaptures(bo.getTaskId(), false);
             if (embedResult != null && embedResult.getTracks() != null)
             {
                 for (CaptureTrackEmbedVo row : embedResult.getTracks())
@@ -896,6 +906,13 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
 
                 continue;
 
+            }
+
+            if ("exit".equals(eventType))
+            {
+                // 门内(door)摄像头不记录出门：离场统一由门外摄像头人脸比对判定
+                skipped++;
+                continue;
             }
 
             int trackId = event.path("trackId").asInt(0);
@@ -958,6 +975,12 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
                         // 重复进门抑制：证据仍入库，但绝不复用已有 open session 的身份（否则多人会被标成 YOLO_1）
                         processed = null;
 
+                    }
+                    else if (processed.getSessionId() == null)
+                    {
+                        // 无可用人脸：不建档、不开 session，也不写进门日志
+                        skipped++;
+                        continue;
                     }
 
                 }
@@ -1052,6 +1075,168 @@ public class BehaviorLogServiceImpl implements IBehaviorLogService
     }
 
 
+
+    private String resolveCameraRole(Long cameraId)
+    {
+        if (cameraId == null)
+        {
+            return "door";
+        }
+        try
+        {
+            CameraConfigVo cfg = cameraService.getCameraConfig(cameraId);
+            if (cfg != null && !StringUtils.isEmpty(cfg.getCameraRole()))
+            {
+                return cfg.getCameraRole();
+            }
+        }
+        catch (Exception ex)
+        {
+            log.warn("解析摄像头角色失败 cameraId={}: {}", cameraId, ex.getMessage());
+        }
+        return "door";
+    }
+
+    /**
+     * 门外摄像头离场导入：逐轨迹最佳脸与人脸库比对，命中且该人当前在场 → 关 session + 签退 + 写离场日志。
+     * 未成脸、未命中、命中但不在场者一律跳过（不建档、不记录）。
+     */
+    private BehaviorLogImportResultVo importExteriorExit(BehaviorLogImportFromVideoBo bo, Long cameraId,
+            JsonNode root, LocalDateTime videoBaseTime, String aiSummary)
+    {
+        AnalyzeEmbedResultVo emb;
+        try
+        {
+            emb = presenceEmbedService.embedAnalyzeCaptures(bo.getTaskId());
+        }
+        catch (Exception ex)
+        {
+            BehaviorLogImportResultVo empty = new BehaviorLogImportResultVo();
+            empty.setInsertedCount(0);
+            empty.setSkippedCount(0);
+            empty.setMessage("门外分析无抓拍人脸，跳过：" + ex.getMessage());
+            return empty;
+        }
+
+        // trackId -> 离场时间 / 证据快照 / 人体框（与进门同一套 snapshotBbox 叠框）
+        Map<Integer, Double> lastTimeByTrack = new HashMap<>();
+        Map<Integer, String> snapByTrack = new HashMap<>();
+        Map<Integer, String> bboxByTrack = new HashMap<>();
+        collectExteriorTrackEvidence(root.path("events"), lastTimeByTrack, snapByTrack, bboxByTrack);
+        collectExteriorTrackEvidence(root.path("tracks"), lastTimeByTrack, snapByTrack, bboxByTrack);
+
+        int inserted = 0;
+        int skipped = 0;
+        Set<Long> exitedPersons = new HashSet<>();
+        List<CaptureTrackEmbedVo> tracks = emb == null ? null : emb.getTracks();
+        if (tracks != null)
+        {
+            for (CaptureTrackEmbedVo t : tracks)
+            {
+                EmbeddingVectorVo fe = t.getFaceEmbedding();
+                if (fe == null || !Boolean.TRUE.equals(fe.getOk()) || fe.getEmbedding() == null)
+                {
+                    skipped++;
+                    continue;
+                }
+                double sec = t.getTrackId() == null ? 0.0 : lastTimeByTrack.getOrDefault(t.getTrackId(), 0.0);
+                LocalDateTime eventTime = videoBaseTime.plusNanos((long) (sec * 1_000_000_000L));
+                Date eventDate = Date.from(eventTime.atZone(ZoneId.systemDefault()).toInstant());
+
+                PresenceTrackProcessResultVo processed = presenceTrackService.processExitByFace(
+                        cameraId, fe.getEmbedding(), eventDate);
+                if (processed == null || processed.isSkippedOrphanExit() || processed.getSessionId() == null
+                        || processed.getPersonId() == null)
+                {
+                    skipped++;
+                    continue;
+                }
+                if (!exitedPersons.add(processed.getPersonId()))
+                {
+                    // 同一片段同一人只记一次离场
+                    continue;
+                }
+                String trackKey = StringUtils.isEmpty(t.getTrackKey())
+                        ? bo.getTaskId() + "_" + TRACK_PREFIX + t.getTrackId()
+                        : t.getTrackKey();
+                if (behaviorLogMapper.countByUniqueKey(trackKey, "exit", eventDate) > 0)
+                {
+                    skipped++;
+                    continue;
+                }
+                String snapshotUrl = t.getTrackId() == null ? "" : snapByTrack.getOrDefault(t.getTrackId(), "");
+                String snapshotBbox = t.getTrackId() == null ? null : bboxByTrack.get(t.getTrackId());
+                String qualityFlag = StringUtils.nvl(processed.getQualityFlag(), "normal");
+
+                BehaviorLogItemVo row = new BehaviorLogItemVo();
+                row.setEventType("exit");
+                row.setEventTime(eventDate);
+                row.setFaceImageUrl(StringUtils.nvl(t.getFaceImageUrl(), ""));
+                row.setBodyImageUrl(StringUtils.nvl(t.getBodyImageUrl(), ""));
+                row.setSnapshotUrl(StringUtils.nvl(snapshotUrl, ""));
+                row.setSnapshotBbox(snapshotBbox);
+                row.setCameraId(cameraId);
+                row.setTrackKey(trackKey);
+                row.setPersonId(processed.getPersonId());
+                row.setSessionId(processed.getSessionId());
+                row.setQualityFlag(qualityFlag);
+                if (!StringUtils.isEmpty(aiSummary))
+                {
+                    row.setBehaviorAnalysis(aiSummary);
+                }
+                behaviorLogMapper.insertBehaviorLog(row);
+                promoteSnapshot(row, eventTime.toLocalDate());
+                bindImportedLogToClip(row.getId(), bo, aiSummary);
+                if (row.getId() != null)
+                {
+                    behaviorLogMapper.updateBehaviorLogPresence(row.getId(), processed.getPersonId(),
+                            processed.getSessionId(), processed.getFaceMatchScore(), null, qualityFlag);
+                }
+                inserted++;
+            }
+        }
+
+        BehaviorLogImportResultVo result = new BehaviorLogImportResultVo();
+        result.setInsertedCount(inserted);
+        result.setSkippedCount(skipped);
+        result.setMessage(String.format("门外离场导入：写入 %d 条离场，跳过 %d（未成脸/未命中在场者）", inserted, skipped));
+        return result;
+    }
+
+    private void collectExteriorTrackEvidence(JsonNode node, Map<Integer, Double> lastTimeByTrack,
+            Map<Integer, String> snapByTrack, Map<Integer, String> bboxByTrack)
+    {
+        if (node == null || !node.isArray())
+        {
+            return;
+        }
+        for (JsonNode t : node)
+        {
+            int tid = t.path("trackId").asInt(-1);
+            if (tid < 0)
+            {
+                continue;
+            }
+            if (t.hasNonNull("lastTimeSec"))
+            {
+                lastTimeByTrack.put(tid, t.path("lastTimeSec").asDouble(0.0));
+            }
+            else if (t.hasNonNull("timeSec") && !lastTimeByTrack.containsKey(tid))
+            {
+                lastTimeByTrack.put(tid, t.path("timeSec").asDouble(0.0));
+            }
+            String snap = t.path("snapshotUrl").asText("");
+            if (!StringUtils.isEmpty(snap))
+            {
+                snapByTrack.put(tid, snap);
+            }
+            String bbox = readEventSnapshotBbox(t);
+            if (!StringUtils.isEmpty(bbox))
+            {
+                bboxByTrack.put(tid, bbox);
+            }
+        }
+    }
 
     private BehaviorLogItemVo buildVideoImportRow(String eventType, Date eventDate, JsonNode event,
             SnapshotUrls urls, String qualityFlag, Long cameraId, String trackKey,
