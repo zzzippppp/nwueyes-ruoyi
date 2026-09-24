@@ -588,12 +588,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                     WHEN pda.attendance_status::text = 'absent' THEN NULL
                     ELSE sir.first_arrival
                 END AS arrivalAt,
-                CASE
-                    WHEN pda.attendance_status::text = 'absent' THEN NULL
-                    WHEN COALESCE(sir.present_at_end, FALSE) THEN NULL
-                    WHEN sir.last_departure IS NULL THEN NULL
-                    WHEN sir.first_arrival IS NOT NULL AND sir.last_departure &lt; sir.first_arrival THEN NULL
-                    ELSE sir.last_departure
+                 CASE
+                     WHEN pda.attendance_status::text = 'absent' THEN NULL
+                     WHEN sir.last_departure IS NULL THEN NULL
+                     WHEN sir.first_arrival IS NOT NULL AND sir.last_departure &lt; sir.first_arrival THEN NULL
+                     ELSE sir.last_departure
                 END AS departureAt,
                 CASE
                     WHEN pda.attendance_status::text = 'absent' THEN 0
@@ -628,8 +627,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                           AND ps.departure_at IS NOT NULL
                           AND ps.departure_at &gt;= ps.arrival_at
                           AND ps.arrival_at &lt; <include refid="rangeEndTs"/>
-                          AND ps.departure_at &gt; <include refid="rangeStartTs"/>
-                    ) AS last_departure,
+                          AND ps.departure_at &gt;= <include refid="rangeStartTs"/>
+                          AND ps.departure_at &lt; <include refid="rangeEndTs"/>
+                     ) AS last_departure,
                     COALESCE(SUM(
                         CASE
                             WHEN ps.arrival_at &lt; <include refid="rangeEndTs"/>

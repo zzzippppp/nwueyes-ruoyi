@@ -649,7 +649,7 @@ public class PresenceIngestProperties
         private int analyzePoolSize = 1;
 
         /** 等待分析的队列长度；满则拒绝新任务并打日志，避免无限堆积 */
-        private int analyzeQueueCapacity = 20;
+        private int analyzeQueueCapacity = 250;
 
         /** 单次 YOLO 分析超时（秒）；超时强制杀掉 Python 进程并释放线程 */
         private int analyzeTimeoutSec = 1800;

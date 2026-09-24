@@ -52,7 +52,7 @@ presence:
       autoAnalyzeYolo: true
       autoImportBehaviorLogs: true
       analyzePoolSize: 1
-      analyzeQueueCapacity: 20
+      analyzeQueueCapacity: 250
       analyzeTimeoutSec: 1800
     live:
       targetDetectFps: 3
