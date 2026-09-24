@@ -46,6 +46,7 @@ import com.ruoyi.system.service.ICameraService;
 import com.ruoyi.system.service.IPresenceReplayService;
 import com.ruoyi.system.service.IPresenceVideoClipService;
 import com.ruoyi.system.service.IVideoAnalysisService;
+import com.ruoyi.system.util.PythonProcessLauncher;
 
 import jakarta.annotation.Resource;
 
@@ -542,7 +543,7 @@ public class PresenceReplayServiceImpl implements IPresenceReplayService
 
             pb.redirectErrorStream(true);
 
-            Process process = pb.start();
+            Process process = PythonProcessLauncher.start(pb);
 
             Thread gobbler = new Thread(() ->
             {

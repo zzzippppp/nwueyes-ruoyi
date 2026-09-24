@@ -652,7 +652,7 @@ public class PresenceIngestProperties
         private int analyzeQueueCapacity = 20;
 
         /** 单次 YOLO 分析超时（秒）；超时强制杀掉 Python 进程并释放线程 */
-        private int analyzeTimeoutSec = 900;
+        private int analyzeTimeoutSec = 1800;
 
         /** Ezviz cloud recording address format. MP4 is preferred for download and analysis. */
         private String ezvizRecordingFormat = "MP4";

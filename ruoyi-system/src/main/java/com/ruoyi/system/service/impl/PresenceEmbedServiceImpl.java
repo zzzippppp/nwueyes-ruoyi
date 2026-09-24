@@ -34,6 +34,7 @@ import com.ruoyi.system.service.IPresenceEmbedService;
 import com.ruoyi.system.service.IPresenceReplayService;
 import com.ruoyi.system.service.IPresenceTrackService;
 import com.ruoyi.system.storage.PresenceStoragePaths;
+import com.ruoyi.system.util.PythonProcessLauncher;
 
 @Service
 public class PresenceEmbedServiceImpl implements IPresenceEmbedService
@@ -523,7 +524,7 @@ public class PresenceEmbedServiceImpl implements IPresenceEmbedService
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(new File(ingestProperties.getWorkspaceRoot()));
         pb.redirectErrorStream(true);
-        Process process = pb.start();
+        Process process = PythonProcessLauncher.start(pb);
 
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(

@@ -53,7 +53,7 @@ presence:
       autoImportBehaviorLogs: true
       analyzePoolSize: 1
       analyzeQueueCapacity: 20
-      analyzeTimeoutSec: 900
+      analyzeTimeoutSec: 1800
     live:
       targetDetectFps: 3
       yoloImgsz: 640

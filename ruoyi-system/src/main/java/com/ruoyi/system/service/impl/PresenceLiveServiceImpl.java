@@ -44,6 +44,7 @@ import com.ruoyi.system.domain.vo.PresenceLiveTaskVo;
 import com.ruoyi.system.storage.PresenceStoragePaths;
 import com.ruoyi.system.service.ILanPreviewService;
 import com.ruoyi.system.service.IPresenceLiveService;
+import com.ruoyi.system.util.PythonProcessLauncher;
 
 /**
  * 区域闯入直播识别服务实现
@@ -209,7 +210,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
             pb.directory(new File(ingestProperties.getWorkspaceRoot()));
             pb.environment().put("PYTHONUNBUFFERED", "1");   // 禁用 Python 输出缓冲，确保日志实时可读
             pb.redirectErrorStream(true);                     // 合并标准错误到标准输出
-            Process process = pb.start();
+            Process process = PythonProcessLauncher.start(pb);
             state.process = process;
             state.status = "starting";
             state.startedAt = nowText();
@@ -485,7 +486,7 @@ public class PresenceLiveServiceImpl implements IPresenceLiveService
 
         try
         {
-            Process process = pb.start();
+            Process process = PythonProcessLauncher.start(pb);
             long waitSec = lanRtsp
                     ? (long) Math.ceil(Math.max(live.getRtspOpenTimeoutSec(), live.getStreamOpenTimeoutSec()) + 30)
                     : (long) Math.ceil(Math.max(live.getCloudOpenTimeoutSec(), live.getCloudStreamOpenTimeoutSec()) + 30);

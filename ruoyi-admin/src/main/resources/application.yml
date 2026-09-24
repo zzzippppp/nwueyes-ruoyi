@@ -207,7 +207,7 @@ presence:
       # 离线分析与直播隔离：单线程队列，超时强杀 Python，队列满则拒绝并打日志
       analyzePoolSize: ${PRESENCE_CLIP_ANALYZE_POOL_SIZE:1}
       analyzeQueueCapacity: ${PRESENCE_CLIP_ANALYZE_QUEUE_CAPACITY:20}
-      analyzeTimeoutSec: ${PRESENCE_CLIP_ANALYZE_TIMEOUT_SEC:900}
+      analyzeTimeoutSec: ${PRESENCE_CLIP_ANALYZE_TIMEOUT_SEC:1800}
       ezvizRecordingFormat: ${PRESENCE_CLIP_EZVIZ_RECORDING_FORMAT:MP4}
       ezvizAddressExpireSeconds: ${PRESENCE_CLIP_EZVIZ_ADDRESS_EXPIRE_SECONDS:1800}
       ezvizTranscodeBusType: ${PRESENCE_CLIP_EZVIZ_TRANSCODE_BUS_TYPE:7}

@@ -9,7 +9,7 @@ User=nwueyes
 Group=nwueyes
 WorkingDirectory=/opt/nwueyes/ruoyi
 EnvironmentFile=/etc/nwueyes/nwueyes.env
-ExecStart=/usr/bin/java -jar /opt/nwueyes/ruoyi/ruoyi-admin/target/ruoyi-admin.jar --spring.config.additional-location=optional:file:/etc/nwueyes/application-local.yml
+ExecStart=/usr/bin/java -Djdk.lang.Process.launchMechanism=vfork -jar /opt/nwueyes/ruoyi/ruoyi-admin/target/ruoyi-admin.jar --spring.config.additional-location=optional:file:/etc/nwueyes/application-local.yml
 SuccessExitStatus=143
 Restart=on-failure
 RestartSec=5
